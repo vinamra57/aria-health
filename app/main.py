@@ -2,11 +2,11 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from app.database import init_db, close_db
-from app.routers import stream, cases, hospital
+from app.database import close_db, init_db
+from app.routers import cases, hospital, stream
 
 logging.basicConfig(
     level=logging.INFO,

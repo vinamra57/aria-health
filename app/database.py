@@ -1,4 +1,5 @@
 import aiosqlite
+
 from app.config import DATABASE_PATH
 
 _db: aiosqlite.Connection | None = None

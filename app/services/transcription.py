@@ -1,12 +1,11 @@
 import asyncio
-import base64
 import json
 import logging
-from typing import AsyncGenerator, Callable, Awaitable
+from collections.abc import Awaitable, Callable
 
 import websockets
 
-from app.config import ELEVENLABS_API_KEY, DUMMY_MODE
+from app.config import DUMMY_MODE, ELEVENLABS_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +106,8 @@ class TranscriptionService:
 
     async def _listen_elevenlabs(self):
         """Listen for transcription events from ElevenLabs."""
+        if self._ws is None:
+            return
         try:
             async for raw_message in self._ws:
                 if not self._running:

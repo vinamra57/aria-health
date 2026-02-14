@@ -1,13 +1,16 @@
 import json
+import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
 from app.database import get_db
-from app.models.case import CaseCreate, CaseResponse, CaseListItem, CaseStatusUpdate
+from app.models.case import CaseCreate, CaseListItem, CaseResponse, CaseStatusUpdate
 from app.models.nemsis import NEMSISRecord
-from app.models.transcript import TranscriptSegment, TranscriptResponse
+from app.models.transcript import TranscriptResponse, TranscriptSegment
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/cases", tags=["cases"])
 
@@ -17,7 +20,7 @@ async def create_case(body: CaseCreate):
     """Create a new emergency case."""
     db = await get_db()
     case_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     nemsis = NEMSISRecord()
 
     await db.execute(
@@ -51,8 +54,8 @@ async def list_cases():
         try:
             nemsis = json.loads(row["nemsis_data"])
             chief = nemsis.get("situation", {}).get("chief_complaint")
-        except Exception:
-            pass
+        except (json.JSONDecodeError, KeyError):
+            logger.debug("Failed to parse NEMSIS data for case %s", row["id"])
         result.append(CaseListItem(
             id=row["id"],
             created_at=row["created_at"],
@@ -77,7 +80,7 @@ async def get_case(case_id: str):
     try:
         nemsis = NEMSISRecord.model_validate_json(case["nemsis_data"])
     except Exception:
-        pass
+        logger.debug("Failed to parse NEMSIS data for case %s", case_id)
 
     return CaseResponse(
         id=case["id"],
@@ -126,7 +129,7 @@ async def get_case_transcripts(case_id: str):
         "SELECT * FROM transcripts WHERE case_id = ? ORDER BY created_at ASC",
         (case_id,),
     )
-    segments = await rows.fetchall()
+    segments = list(await rows.fetchall())
 
     return TranscriptResponse(
         segments=[
@@ -152,7 +155,7 @@ async def update_case_status(case_id: str, body: CaseStatusUpdate):
     if not await row.fetchone():
         raise HTTPException(status_code=404, detail="Case not found")
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     await db.execute(
         "UPDATE cases SET status = ?, updated_at = ? WHERE id = ?",
         (body.status, now, case_id),

@@ -1,9 +1,8 @@
-import json
 import logging
 
 from openai import AsyncOpenAI
 
-from app.config import OPENAI_API_KEY, DUMMY_MODE
+from app.config import DUMMY_MODE, OPENAI_API_KEY
 from app.models.nemsis import NEMSISRecord
 
 logger = logging.getLogger(__name__)
@@ -54,7 +53,7 @@ async def extract_nemsis(transcript: str, existing: NEMSISRecord | None = None) 
             },
         )
 
-        raw = response.choices[0].message.content
+        raw = response.choices[0].message.content or "{}"
         extracted = NEMSISRecord.model_validate_json(raw)
 
         # Merge: keep existing non-null values if new extraction returns null
@@ -113,10 +112,10 @@ def _dummy_extract(transcript: str) -> NEMSISRecord:
     # Extract age/gender
     if "45 year old" in text:
         record.patient.patient_age = "45"
-    if "male" in text:
-        record.patient.patient_gender = "Male"
-    elif "female" in text:
+    if "female" in text:
         record.patient.patient_gender = "Female"
+    elif "male" in text:
+        record.patient.patient_gender = "Male"
 
     # Extract address
     if "742 evergreen terrace" in text:
