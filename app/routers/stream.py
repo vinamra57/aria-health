@@ -7,7 +7,12 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.database import get_db
 from app.models.nemsis import NEMSISRecord
-from app.services.core_info_checker import is_core_info_complete, trigger_downstream
+from app.services.core_info_checker import (
+    is_core_info_complete,
+    is_gp_contact_available,
+    trigger_gp_call,
+    trigger_medical_db,
+)
 from app.services.event_bus import event_bus
 from app.services.nemsis_extractor import extract_nemsis
 from app.services.transcription import TranscriptionService
@@ -25,7 +30,8 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
     2. Relays to ElevenLabs for transcription (or dummy mode)
     3. On committed transcript: runs GPT-5.2 NEMSIS extraction
     4. Pushes transcript + NEMSIS updates back to client
-    5. When core info complete: triggers GP + medical DB lookups
+    5. When core info complete: triggers medical DB lookup
+    6. When core info + GP contact available: triggers GP voice call
     """
     await websocket.accept()
     db = await get_db()
@@ -43,7 +49,8 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
     # State for this session
     accumulated_transcript = ""
     current_nemsis = NEMSISRecord()
-    core_triggered = False
+    core_triggered = False       # medical DB lookup
+    gp_call_triggered = False    # GP voice call
     extraction_lock = asyncio.Lock()
     background_tasks: set[asyncio.Task] = set()
 
@@ -94,7 +101,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
         task.add_done_callback(background_tasks.discard)
 
     async def _run_extraction(segment_text: str, timestamp: str):
-        nonlocal current_nemsis, core_triggered
+        nonlocal current_nemsis, core_triggered, gp_call_triggered
 
         async with extraction_lock:
             try:
@@ -143,7 +150,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
                     "patient_name": patient_name,
                 })
 
-                # Check core info completeness
+                # --- Trigger: Medical DB lookup (core info complete) ---
                 if not core_triggered and is_core_info_complete(current_nemsis):
                     core_triggered = True
                     await db.execute(
@@ -157,18 +164,17 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
                         {
                             "type": "core_info_complete",
                             "message": "Core patient info collected. "
-                            "Triggering downstream lookups.",
+                            "Triggering medical DB lookup.",
                         }
                     )
 
-                    # Trigger GP + medical DB in parallel
-                    gp_response, db_response = await trigger_downstream(current_nemsis)
+                    # Trigger medical DB lookup
+                    db_response = await trigger_medical_db(current_nemsis)
 
                     await db.execute(
-                        "UPDATE cases SET gp_response = ?, medical_db_response = ?,"
+                        "UPDATE cases SET medical_db_response = ?,"
                         " updated_at = ? WHERE id = ?",
                         (
-                            gp_response,
                             db_response,
                             datetime.now(UTC).isoformat(),
                             case_id,
@@ -178,15 +184,56 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
 
                     await _safe_send(
                         {
-                            "type": "downstream_complete",
-                            "gp_response": gp_response,
+                            "type": "medical_db_complete",
                             "medical_db_response": db_response,
                         }
                     )
                     await event_bus.publish(case_id, {
-                        "type": "downstream_complete",
-                        "gp_response": gp_response,
+                        "type": "medical_db_complete",
                         "medical_db_response": db_response,
+                    })
+
+                # --- Trigger: GP voice call (core info + GP contact) ---
+                if (
+                    not gp_call_triggered
+                    and is_core_info_complete(current_nemsis)
+                    and is_gp_contact_available(current_nemsis)
+                ):
+                    gp_call_triggered = True
+
+                    await _safe_send(
+                        {
+                            "type": "gp_call_triggered",
+                            "message": "GP contact detected. "
+                            "Initiating GP voice call.",
+                        }
+                    )
+
+                    # Trigger GP call
+                    gp_response = await trigger_gp_call(
+                        current_nemsis, case_id
+                    )
+
+                    await db.execute(
+                        "UPDATE cases SET gp_response = ?,"
+                        " updated_at = ? WHERE id = ?",
+                        (
+                            gp_response,
+                            datetime.now(UTC).isoformat(),
+                            case_id,
+                        ),
+                    )
+                    await db.commit()
+
+                    await _safe_send(
+                        {
+                            "type": "gp_call_complete",
+                            "gp_response": gp_response,
+                        }
+                    )
+                    await event_bus.publish(case_id, {
+                        "type": "gp_call_complete",
+                        "gp_response": gp_response,
                     })
 
             except Exception as e:

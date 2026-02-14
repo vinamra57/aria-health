@@ -14,6 +14,7 @@ DUMMY_SEGMENTS = [
     "Patient is a 45 year old male",
     "named John David Smith",
     "located at 742 Evergreen Terrace Springfield Illinois",
+    "Patient's GP is Doctor Wilson at Greenfield Medical Center in Springfield",
     "Chief complaint is chest pain radiating to left arm",
     "Started approximately 30 minutes ago",
     "Patient is alert and oriented and reports pain 8 out of 10",

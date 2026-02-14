@@ -14,6 +14,9 @@ class NEMSISPatientInfo(BaseModel):
     patient_race: str | None = None             # ePatient.14
     patient_phone: str | None = None            # ePatient.18
     patient_date_of_birth: str | None = None    # ePatient.17
+    gp_name: str | None = None                 # GP / primary care physician name
+    gp_phone: str | None = None                # GP practice phone (confirmed only)
+    gp_practice_name: str | None = None        # Practice / clinic name
 
 
 class NEMSISVitals(BaseModel):

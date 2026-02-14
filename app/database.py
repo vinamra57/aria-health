@@ -42,7 +42,33 @@ async def init_db():
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (case_id) REFERENCES cases(id)
         );
+
+        CREATE TABLE IF NOT EXISTS gp_call_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id TEXT NOT NULL,
+            call_time TEXT NOT NULL,
+            phone_number TEXT NOT NULL,
+            patient_name TEXT,
+            patient_dob TEXT,
+            outcome TEXT NOT NULL,
+            call_sid TEXT,
+            conversation_id TEXT,
+            transcript TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (case_id) REFERENCES cases(id)
+        );
     """)
+
+    # Add GP columns to cases if they don't exist (migration-safe)
+    try:
+        await db.execute("ALTER TABLE cases ADD COLUMN gp_call_status TEXT")
+    except Exception:  # noqa: S110
+        pass  # Column already exists
+    try:
+        await db.execute("ALTER TABLE cases ADD COLUMN gp_call_transcript TEXT")
+    except Exception:  # noqa: S110
+        pass  # Column already exists
+
     await db.commit()
 
 

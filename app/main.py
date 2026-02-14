@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.database import close_db, init_db
-from app.routers import cases, hospital, stream
+from app.routers import cases, gp_call, hospital, stream
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +36,7 @@ app = FastAPI(
 app.include_router(stream.router)
 app.include_router(cases.router)
 app.include_router(hospital.router)
+app.include_router(gp_call.router, prefix="/api")
 
 # Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")

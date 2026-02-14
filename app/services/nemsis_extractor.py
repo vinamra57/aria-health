@@ -28,7 +28,11 @@ Rules:
 - For medical_history, extract conditions like "hypertension", "diabetes", etc.
 - For allergies, extract any mentioned drug or environmental allergies.
 - For disposition fields, extract transport destination and mode if mentioned.
-- For times, extract any mentioned timestamps (e.g. "dispatched at 14:30")."""
+- For times, extract any mentioned timestamps (e.g. "dispatched at 14:30").
+- For gp_name, extract any mention of the patient's GP, primary care physician, or family doctor name.
+- For gp_practice_name, extract the practice/clinic name if mentioned separately from the doctor's name.
+- For gp_phone, extract a phone number ONLY if it is explicitly identified as the GP or practice phone number.
+  Do NOT extract family member, pharmacy, or other contact numbers as gp_phone."""
 
 
 async def extract_nemsis(transcript: str, existing: NEMSISRecord | None = None) -> NEMSISRecord:
@@ -220,6 +224,12 @@ def _dummy_extract(transcript: str) -> NEMSISRecord:
         allergies.append("Sulfonamides")
     if allergies:
         record.history.allergies = allergies
+
+    # Extract GP info
+    if "doctor wilson" in text or "dr wilson" in text:
+        record.patient.gp_name = "Dr. Wilson"
+    if "greenfield medical" in text:
+        record.patient.gp_practice_name = "Greenfield Medical Center"
 
     # Extract disposition
     if "transporting to" in text or "en route to" in text:

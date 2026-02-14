@@ -385,12 +385,13 @@ async def test_trigger_downstream():
             patient_age="45",
             patient_gender="Male",
             patient_address="123 Main St",
+            gp_name="Dr. Wilson",
         ),
     )
     gp_result, db_result = await trigger_downstream(r)
     assert "John Smith" in gp_result
     assert "John Smith" in db_result
-    assert "[GP STUB]" in gp_result
+    assert "[DUMMY]" in gp_result
     assert "MEDICAL HISTORY REPORT" in db_result
 
 
@@ -404,6 +405,7 @@ async def test_trigger_downstream_with_dob():
             patient_gender="Female",
             patient_address="456 Oak Ave",
             patient_date_of_birth="1994-05-20",
+            gp_name="Dr. Smith",
         ),
     )
     gp_result, db_result = await trigger_downstream(r)
@@ -412,7 +414,23 @@ async def test_trigger_downstream_with_dob():
     assert "DOB: 1994-05-20" in db_result
 
 
-# --- GP Caller Stub ---
+async def test_trigger_downstream_no_gp():
+    """Without GP contact, GP call returns early but medical DB still works."""
+    r = NEMSISRecord(
+        patient=NEMSISPatientInfo(
+            patient_name_first="Bob",
+            patient_name_last="Jones",
+            patient_age="50",
+            patient_gender="Male",
+            patient_address="789 Pine St",
+        ),
+    )
+    gp_result, db_result = await trigger_downstream(r)
+    assert "No GP contact available" in gp_result
+    assert "MEDICAL HISTORY REPORT" in db_result
+
+
+# --- GP Caller ---
 
 
 async def test_gp_caller():
@@ -421,10 +439,21 @@ async def test_gp_caller():
         patient_age="45",
         patient_gender="Male",
         patient_address="123 Main St",
+        gp_name="Dr. Wilson",
     )
     assert "John Smith" in result
-    assert "45" in result
-    assert "[GP STUB]" in result
+    assert "[DUMMY]" in result
+
+
+async def test_gp_caller_no_contact():
+    """GP caller returns early when no GP contact info provided."""
+    result = await call_gp(
+        patient_name="John Smith",
+        patient_age="45",
+        patient_gender="Male",
+        patient_address="123 Main St",
+    )
+    assert "No GP contact available" in result
 
 
 # --- Medical DB (FHIR-backed, dummy mode) ---
@@ -438,8 +467,8 @@ async def test_medical_db():
     )
     assert "Jane Doe" in result
     assert "MEDICAL HISTORY REPORT" in result
-    assert "Essential hypertension" in result
-    assert "Penicillin" in result
+    assert "CONDITIONS / MEDICAL HISTORY" in result
+    assert "ALLERGIES (CRITICAL)" in result
 
 
 # --- Summary Service (Dummy Mode) ---
