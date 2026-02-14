@@ -8,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.database import get_db
 from app.models.nemsis import NEMSISRecord
 from app.services.core_info_checker import is_core_info_complete, trigger_downstream
+from app.services.event_bus import event_bus
 from app.services.nemsis_extractor import extract_nemsis
 from app.services.transcription import TranscriptionService
 
@@ -133,13 +134,14 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
                 )
                 await db.commit()
 
-                # Send NEMSIS update to client
-                await _safe_send(
-                    {
-                        "type": "nemsis_update",
-                        "nemsis": current_nemsis.model_dump(),
-                    }
-                )
+                # Send NEMSIS update to client and hospital dashboard
+                nemsis_dict = current_nemsis.model_dump()
+                await _safe_send({"type": "nemsis_update", "nemsis": nemsis_dict})
+                await event_bus.publish(case_id, {
+                    "type": "nemsis_update",
+                    "nemsis": nemsis_dict,
+                    "patient_name": patient_name,
+                })
 
                 # Check core info completeness
                 if not core_triggered and is_core_info_complete(current_nemsis):
@@ -181,6 +183,11 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
                             "medical_db_response": db_response,
                         }
                     )
+                    await event_bus.publish(case_id, {
+                        "type": "downstream_complete",
+                        "gp_response": gp_response,
+                        "medical_db_response": db_response,
+                    })
 
             except Exception as e:
                 logger.error(f"NEMSIS extraction error: {e}")

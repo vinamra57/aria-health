@@ -168,9 +168,50 @@ async def test_case_summary_invalid_urgency(async_client):
     assert resp.status_code == 422
 
 
+async def test_active_cases_empty(async_client):
+    """Test active cases endpoint with no cases."""
+    resp = await async_client.get("/api/hospital/active-cases")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+async def test_active_cases_returns_active_only(async_client):
+    """Test active cases endpoint only returns active cases."""
+    # Create two cases
+    r1 = await async_client.post("/api/cases", json={})
+    r2 = await async_client.post("/api/cases", json={})
+    id1 = r1.json()["id"]
+
+    # Complete one
+    await async_client.patch(f"/api/cases/{id1}", json={"status": "completed"})
+
+    resp = await async_client.get("/api/hospital/active-cases")
+    cases = resp.json()
+    assert len(cases) == 1
+    assert cases[0]["id"] == r2.json()["id"]
+
+
+async def test_active_cases_includes_nemsis(async_client):
+    """Test active cases includes parsed NEMSIS data."""
+    await async_client.post("/api/cases", json={})
+
+    resp = await async_client.get("/api/hospital/active-cases")
+    cases = resp.json()
+    assert len(cases) == 1
+    assert "nemsis" in cases[0]
+    assert isinstance(cases[0]["nemsis"], dict)
+
+
 async def test_serve_index(async_client):
     """Test that the root serves the paramedic UI."""
     resp = await async_client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+
+
+async def test_serve_hospital_ui(async_client):
+    """Test that /hospital serves the hospital dashboard."""
+    resp = await async_client.get("/hospital")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
 
