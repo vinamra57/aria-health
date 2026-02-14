@@ -1,7 +1,7 @@
 """FHIR R4 client for querying public health information exchanges.
 
-Queries public FHIR R4 servers (HAPI FHIR, Firely) with Synthea synthetic patient
-data to retrieve patient medical history: conditions, allergies, medications,
+Queries public FHIR R4 servers (SMART on FHIR, HAPI FHIR) with Synthea synthetic
+patient data to retrieve patient medical history: conditions, allergies, medications,
 immunizations, and procedures.
 
 In production, this would connect to Particle Health or a self-hosted FHIR server
@@ -10,6 +10,7 @@ servers loaded with Synthea-generated patient data.
 """
 
 import asyncio
+import hashlib
 import logging
 
 import httpx
@@ -20,15 +21,15 @@ logger = logging.getLogger(__name__)
 
 # Public FHIR R4 test servers (no auth required, Synthea data available)
 FHIR_SERVERS = [
+    "https://launch.smarthealthit.org/v/r4/fhir",  # Rich Synthea data
     "https://hapi.fhir.org/baseR4",
-    "https://server.fire.ly",
 ]
 
 FHIR_HEADERS = {
     "Accept": "application/fhir+json",
 }
 
-FHIR_TIMEOUT = 30.0
+FHIR_TIMEOUT = 45.0
 
 
 def _extract_display(codeable_concept: dict) -> str:
@@ -49,38 +50,91 @@ def _extract_entries(bundle: dict) -> list[dict]:
     return [e["resource"] for e in bundle.get("entry", []) if "resource" in e]
 
 
+def _split_name(full_name: str) -> tuple[str | None, str | None]:
+    """Split a full name into (given_name, family_name) for FHIR search.
+
+    Convention: last token is family name, preceding tokens are given names.
+    Returns (None, None) if name is empty.
+    """
+    parts = full_name.strip().split()
+    if not parts:
+        return None, None
+    if len(parts) == 1:
+        return None, parts[0]
+    return " ".join(parts[:-1]), parts[-1]
+
+
 async def search_patient(
     client: httpx.AsyncClient,
     base_url: str,
-    name: str,
+    given: str | None = None,
+    family: str | None = None,
     birthdate: str | None = None,
     gender: str | None = None,
 ) -> list[dict]:
     """Search for a patient by demographics on a FHIR R4 server.
 
+    Tries progressively broader search strategies until a match is found:
+    1. family + given + gender + birthdate (most specific)
+    2. family + given + gender
+    3. family + given
+    4. family + gender
+    5. family only (broadest)
+
     Args:
         client: httpx async client instance
         base_url: FHIR server base URL
-        name: Patient name (searches across given and family)
+        given: Patient given/first name(s)
+        family: Patient family/last name
         birthdate: Date of birth in YYYY-MM-DD format
         gender: male, female, other, unknown
 
     Returns:
         List of matching Patient resources
     """
-    params: dict[str, str] = {"name": name, "_count": "5"}
-    if birthdate:
-        params["birthdate"] = birthdate
-    if gender:
-        params["gender"] = gender.lower()
+    if not family:
+        return []
 
-    resp = await client.get(
-        f"{base_url}/Patient",
-        params=params,
-        headers=FHIR_HEADERS,
-    )
-    resp.raise_for_status()
-    return _extract_entries(resp.json())
+    gender_lower = gender.lower() if gender else None
+
+    strategies: list[tuple[str, dict[str, str]]] = []
+
+    if given and gender_lower and birthdate:
+        strategies.append(("family+given+gender+birthdate", {
+            "family": family, "given": given,
+            "gender": gender_lower, "birthdate": birthdate,
+        }))
+    if given and gender_lower:
+        strategies.append(("family+given+gender", {
+            "family": family, "given": given, "gender": gender_lower,
+        }))
+    if given:
+        strategies.append(("family+given", {
+            "family": family, "given": given,
+        }))
+    if gender_lower:
+        strategies.append(("family+gender", {
+            "family": family, "gender": gender_lower,
+        }))
+    strategies.append(("family", {"family": family}))
+
+    for strategy_name, params in strategies:
+        params["_count"] = "5"
+        resp = await client.get(
+            f"{base_url}/Patient",
+            params=params,
+            headers=FHIR_HEADERS,
+        )
+        resp.raise_for_status()
+        patients = _extract_entries(resp.json())
+        if patients:
+            logger.info(
+                "Patient search hit on %s using strategy %s (%d results)",
+                base_url, strategy_name, len(patients),
+            )
+            return patients
+
+    return []
 
 
 async def get_conditions(
@@ -291,6 +345,7 @@ async def query_fhir_servers(
     """Query FHIR servers to find a patient and retrieve their full medical record.
 
     Tries each configured FHIR server in order until a matching patient is found.
+    Uses cascading search strategies per server (most specific to broadest).
 
     Args:
         patient_name: Patient name for search
@@ -303,11 +358,15 @@ async def query_fhir_servers(
     if DUMMY_MODE:
         return _dummy_fhir_response(patient_name, patient_gender, patient_dob)
 
+    given, family = _split_name(patient_name)
+
     for base_url in FHIR_SERVERS:
         try:
             async with httpx.AsyncClient(timeout=FHIR_TIMEOUT) as client:
                 patients = await search_patient(
-                    client, base_url, patient_name,
+                    client, base_url,
+                    given=given,
+                    family=family,
                     birthdate=patient_dob,
                     gender=patient_gender,
                 )
@@ -388,6 +447,99 @@ def _get_patient_name(patient: dict) -> str:
     return f"{given} {family}".strip() or name.get("text", "Unknown")
 
 
+# --- Dummy / synthetic data pools for DUMMY_MODE ---
+
+_CONDITION_POOL = [
+    "Essential hypertension",
+    "Diabetes mellitus type 2",
+    "Hyperlipidemia",
+    "Chronic kidney disease stage 2",
+    "Obesity (BMI 30+)",
+    "Asthma",
+    "Major depressive disorder",
+    "Generalized anxiety disorder",
+    "Coronary artery disease",
+    "Atrial fibrillation",
+    "Chronic obstructive pulmonary disease",
+    "Osteoarthritis",
+    "Gastroesophageal reflux disease",
+    "Hypothyroidism",
+    "Migraine",
+    "Rheumatoid arthritis",
+    "Heart failure",
+    "Peripheral vascular disease",
+    "Seizure disorder",
+]
+
+_ALLERGY_POOL = [
+    "Penicillin [high]",
+    "Sulfonamide antibiotics",
+    "Aspirin",
+    "Ibuprofen",
+    "Codeine [high]",
+    "Latex [high]",
+    "Peanuts [high]",
+    "Tree nuts",
+    "Shellfish",
+    "Bee venom [high]",
+    "Amoxicillin",
+    "Cephalosporins",
+]
+
+_MEDICATION_POOL = [
+    "Metformin 500mg oral tablet",
+    "Lisinopril 10mg oral tablet",
+    "Atorvastatin 20mg oral tablet",
+    "Aspirin 81mg oral tablet",
+    "Amlodipine 5mg oral tablet",
+    "Omeprazole 20mg oral capsule",
+    "Metoprolol 25mg oral tablet",
+    "Levothyroxine 50mcg oral tablet",
+    "Sertraline 50mg oral tablet",
+    "Albuterol inhaler",
+    "Gabapentin 300mg oral capsule",
+    "Warfarin 5mg oral tablet",
+    "Furosemide 40mg oral tablet",
+    "Prednisone 10mg oral tablet",
+]
+
+_IMMUNIZATION_POOL = [
+    "Influenza seasonal injectable (2025-09-15)",
+    "Td (adult) preservative free (2023-06-01)",
+    "COVID-19 mRNA vaccine (2024-10-20)",
+    "Hepatitis B vaccine (2020-03-10)",
+    "Pneumococcal polysaccharide vaccine (2022-11-05)",
+    "Zoster vaccine live (2024-01-18)",
+    "MMR vaccine (1985-04-22)",
+    "Tdap (2021-07-30)",
+    "Hepatitis A vaccine (2019-08-14)",
+    "HPV quadrivalent vaccine (2018-05-12)",
+]
+
+_PROCEDURE_POOL = [
+    "Colonoscopy (2024-03-15)",
+    "Echocardiography (2024-01-10)",
+    "Hemoglobin A1c measurement (2025-06-20)",
+    "Electrocardiogram (2025-02-14)",
+    "CT scan of chest (2023-09-08)",
+    "MRI of brain (2022-12-01)",
+    "Knee arthroscopy (2021-06-15)",
+    "Cardiac catheterization (2023-04-20)",
+    "Upper GI endoscopy (2024-08-12)",
+    "Bone density scan (2025-01-05)",
+]
+
+
+def _pick_from_pool(pool: list[str], seed: int, min_count: int, max_count: int) -> list[str]:
+    """Deterministically pick items from a pool using a seed value."""
+    count = min_count + (seed % (max_count - min_count + 1))
+    start = seed % len(pool)
+    result = []
+    for i in range(count):
+        result.append(pool[(start + i) % len(pool)])
+    return result
+
+
 def _dummy_fhir_response(
     patient_name: str,
     patient_gender: str | None = None,
@@ -397,38 +549,19 @@ def _dummy_fhir_response(
 
     Produces synthetic but clinically plausible patient history data
     that matches the structure returned by real FHIR queries.
+    Different patient names produce different data; same name is deterministic.
     """
+    name_hash = int(hashlib.sha256(patient_name.lower().encode()).hexdigest(), 16)
+
     return {
         "source": "dummy://synthetic-fhir-server",
-        "fhir_patient_id": "synth-001",
+        "fhir_patient_id": f"synth-{name_hash % 10000:04d}",
         "patient_name": patient_name,
         "patient_dob": patient_dob or "1980-01-15",
         "patient_gender": (patient_gender or "unknown").lower(),
-        "conditions": [
-            "Essential hypertension",
-            "Diabetes mellitus type 2",
-            "Hyperlipidemia",
-            "Chronic kidney disease stage 2",
-            "Obesity (BMI 30+)",
-        ],
-        "allergies": [
-            "Penicillin [high]",
-            "Sulfonamide antibiotics",
-        ],
-        "medications": [
-            "Metformin 500mg oral tablet",
-            "Lisinopril 10mg oral tablet",
-            "Atorvastatin 20mg oral tablet",
-            "Aspirin 81mg oral tablet",
-        ],
-        "immunizations": [
-            "Influenza seasonal injectable (2025-09-15)",
-            "Td (adult) preservative free (2023-06-01)",
-            "COVID-19 mRNA vaccine (2024-10-20)",
-        ],
-        "procedures": [
-            "Colonoscopy (2024-03-15)",
-            "Echocardiography (2024-01-10)",
-            "Hemoglobin A1c measurement (2025-06-20)",
-        ],
+        "conditions": _pick_from_pool(_CONDITION_POOL, name_hash, 3, 7),
+        "allergies": _pick_from_pool(_ALLERGY_POOL, name_hash >> 8, 1, 3),
+        "medications": _pick_from_pool(_MEDICATION_POOL, name_hash >> 16, 2, 5),
+        "immunizations": _pick_from_pool(_IMMUNIZATION_POOL, name_hash >> 24, 2, 4),
+        "procedures": _pick_from_pool(_PROCEDURE_POOL, name_hash >> 32, 2, 4),
     }

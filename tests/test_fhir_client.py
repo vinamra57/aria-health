@@ -5,6 +5,7 @@ from app.services.fhir_client import (
     _extract_display,
     _extract_entries,
     _get_patient_name,
+    _split_name,
     parse_allergies,
     parse_conditions,
     parse_immunizations,
@@ -86,6 +87,28 @@ class TestExtractEntries:
         entries = _extract_entries(bundle)
         assert len(entries) == 1
         assert entries[0]["id"] == "2"
+
+
+class TestSplitName:
+    def test_full_name(self):
+        assert _split_name("John Smith") == ("John", "Smith")
+
+    def test_single_name(self):
+        assert _split_name("Madonna") == (None, "Madonna")
+
+    def test_three_part_name(self):
+        assert _split_name("Mary Jane Watson") == ("Mary Jane", "Watson")
+
+    def test_empty_string(self):
+        assert _split_name("") == (None, None)
+
+    def test_whitespace_only(self):
+        assert _split_name("   ") == (None, None)
+
+    def test_extra_whitespace(self):
+        given, family = _split_name("  John   Smith  ")
+        assert family == "Smith"
+        assert "John" in given
 
 
 class TestGetPatientName:
@@ -391,28 +414,26 @@ class TestDummyFhirResponse:
 
     def test_conditions_populated(self):
         result = _dummy_fhir_response("Jane Doe")
-        assert len(result["conditions"]) == 5
-        assert "Essential hypertension" in result["conditions"]
-        assert "Diabetes mellitus type 2" in result["conditions"]
+        assert 3 <= len(result["conditions"]) <= 7
+        assert all(isinstance(c, str) for c in result["conditions"])
 
     def test_allergies_populated(self):
         result = _dummy_fhir_response("Test Patient")
-        assert len(result["allergies"]) == 2
-        assert "Penicillin [high]" in result["allergies"]
+        assert 1 <= len(result["allergies"]) <= 3
+        assert all(isinstance(a, str) for a in result["allergies"])
 
     def test_medications_populated(self):
         result = _dummy_fhir_response("Test Patient")
-        assert len(result["medications"]) == 4
-        assert "Metformin 500mg oral tablet" in result["medications"]
-        assert "Lisinopril 10mg oral tablet" in result["medications"]
+        assert 2 <= len(result["medications"]) <= 5
+        assert all(isinstance(m, str) for m in result["medications"])
 
     def test_immunizations_populated(self):
         result = _dummy_fhir_response("Test Patient")
-        assert len(result["immunizations"]) == 3
+        assert 2 <= len(result["immunizations"]) <= 4
 
     def test_procedures_populated(self):
         result = _dummy_fhir_response("Test Patient")
-        assert len(result["procedures"]) == 3
+        assert 2 <= len(result["procedures"]) <= 4
 
     def test_default_dob(self):
         result = _dummy_fhir_response("Test", "female")
@@ -422,6 +443,21 @@ class TestDummyFhirResponse:
     def test_default_gender(self):
         result = _dummy_fhir_response("Test")
         assert result["patient_gender"] == "unknown"
+
+    def test_different_patients_different_data(self):
+        r1 = _dummy_fhir_response("Alice Johnson", "female", "1990-01-01")
+        r2 = _dummy_fhir_response("Bob Williams", "male", "1985-06-15")
+        differs = (
+            r1["conditions"] != r2["conditions"]
+            or r1["allergies"] != r2["allergies"]
+            or r1["medications"] != r2["medications"]
+        )
+        assert differs, "Different patients should get different clinical data"
+
+    def test_same_patient_deterministic(self):
+        r1 = _dummy_fhir_response("John Smith", "male", "1980-01-15")
+        r2 = _dummy_fhir_response("John Smith", "male", "1980-01-15")
+        assert r1 == r2
 
 
 # --- Integration: query_fhir_servers in dummy mode ---
