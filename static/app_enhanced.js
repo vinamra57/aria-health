@@ -20,8 +20,7 @@ let fetchedMedicalHistory = null;
 // Data source status tracking
 const dataSources = {
     FHIR: { status: 'waiting', name: 'FHIR R4 / Synthea' },
-    GP: { status: 'waiting', name: 'GP Practice Call' },
-    GPData: { status: 'waiting', name: 'GP Records' }
+    GP: { status: 'waiting', name: 'GP Practice Call' }
 };
 
 // --- Case Management ---
