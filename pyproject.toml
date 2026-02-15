@@ -1,0 +1,53 @@
+[project]
+name = "aria-health"
+version = "0.1.0"
+description = "AI Emergency Response System - Automated ePCR for Paramedics"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = [
+    "-v",
+    "--tb=short",
+]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = ["tests/*", "*/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "N", "S", "C4", "RUF"]
+ignore = [
+    "S101",   # assert in tests is fine
+    "E501",   # line length handled by formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S106"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.pyright]
+include = ["app"]
+exclude = ["**/__pycache__", ".venv", "tests"]
+typeCheckingMode = "basic"
+pythonVersion = "3.11"
+reportMissingImports = "error"
+reportMissingTypeStubs = false
