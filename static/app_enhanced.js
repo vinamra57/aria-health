@@ -8,6 +8,11 @@ let segmentCount = 0;
 let sceneTimerInterval = null;
 let sceneStartTime = null;
 let coreInfoComplete = false;
+let voiceGateActive = false;
+let lastVoiceAt = 0;
+
+const VOICE_RMS_THRESHOLD = 0.012;
+const VOICE_HOLD_MS = 700;
 
 // Store fetched medical history
 let fetchedMedicalHistory = null;
@@ -133,6 +138,22 @@ async function startMicrophone() {
         processorNode.onaudioprocess = (e) => {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 const float32 = e.inputBuffer.getChannelData(0);
+                let sum = 0;
+                for (let i = 0; i < float32.length; i++) {
+                    sum += float32[i] * float32[i];
+                }
+                const rms = Math.sqrt(sum / float32.length);
+                const now = performance.now();
+                if (rms > VOICE_RMS_THRESHOLD) {
+                    voiceGateActive = true;
+                    lastVoiceAt = now;
+                }
+                if (voiceGateActive && now - lastVoiceAt > VOICE_HOLD_MS) {
+                    voiceGateActive = false;
+                }
+                if (!voiceGateActive) {
+                    return;
+                }
                 const int16 = float32ToInt16(float32);
                 const base64 = arrayBufferToBase64(int16.buffer);
                 ws.send(JSON.stringify({ type: "audio_chunk", data: base64 }));
