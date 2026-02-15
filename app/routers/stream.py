@@ -520,7 +520,12 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
         core_triggered = bool(existing["core_info_complete"])
 
     stt = TranscriptionService(on_partial=on_partial, on_committed=on_committed)
-    await stt.start()
+    try:
+        await stt.start()
+    except Exception as exc:
+        await _safe_send({"type": "error", "message": str(exc)})
+        await websocket.close()
+        return
 
     extraction_task = asyncio.create_task(_extraction_loop())
     if DUMMY_MODE:

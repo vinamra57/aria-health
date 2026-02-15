@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 
 import websockets
 
-from app.config import DUMMY_MODE, ELEVENLABS_API_KEY, VOICE_DUMMY
+from app.config import ELEVENLABS_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +57,10 @@ class TranscriptionService:
     async def start(self):
         """Start the transcription service."""
         self._running = True
-        if DUMMY_MODE or VOICE_DUMMY or not ELEVENLABS_API_KEY:
-            logger.info("Starting transcription in DUMMY mode")
-            self._dummy_task = asyncio.create_task(self._run_dummy())
-        else:
-            logger.info("Starting transcription with ElevenLabs Scribe v2 Realtime")
-            await self._connect_elevenlabs()
+        if not ELEVENLABS_API_KEY:
+            raise RuntimeError("ELEVENLABS_API_KEY is required for live transcription.")
+        logger.info("Starting transcription with ElevenLabs Scribe v2 Realtime")
+        await self._connect_elevenlabs()
 
     async def stop(self):
         """Stop the transcription service."""
@@ -85,8 +83,6 @@ class TranscriptionService:
 
     async def send_audio(self, audio_base64: str):
         """Send an audio chunk to ElevenLabs or ignore in dummy mode."""
-        if DUMMY_MODE or VOICE_DUMMY or not ELEVENLABS_API_KEY:
-            return
         if self._ws:
             message = {
                 "message_type": "input_audio_chunk",
