@@ -9,13 +9,13 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.config import DUMMY_MODE
 from app.database import get_db
 from app.models.nemsis import NEMSISRecord
+from app.services.clinical_insights import update_case_insights
 from app.services.core_info_checker import (
     is_core_info_complete,
     is_gp_contact_available,
     trigger_gp_call,
     trigger_medical_db,
 )
-from app.services.clinical_insights import update_case_insights
 from app.services.event_bus import event_bus
 from app.services.nemsis_extractor import extract_nemsis
 from app.services.transcription import TranscriptionService
@@ -24,19 +24,15 @@ from app.services.vitals_dataset import VitalsSequence, load_demo_vitals
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Word count threshold - trigger extraction after this many new words
+WORD_COUNT_THRESHOLD = 10
+# Max interval between extractions (fallback if not enough words)
+MAX_EXTRACTION_INTERVAL = 3
+
 
 @router.websocket("/ws/stream/{case_id}")
 async def stream_endpoint(websocket: WebSocket, case_id: str):
-    """WebSocket endpoint for streaming audio from wearable mic.
-
-    Flow:
-    1. Receives audio chunks from client
-    2. Relays to ElevenLabs for transcription (or dummy mode)
-    3. On committed transcript: runs GPT-5.2 NEMSIS extraction
-    4. Pushes transcript + NEMSIS updates back to client
-    5. When core info complete: triggers medical DB lookup
-    6. When core info + GP contact available: triggers GP voice call
-    """
+    """WebSocket endpoint for streaming audio from wearable mic."""
     await websocket.accept()
     db = await get_db()
 
@@ -51,17 +47,21 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
 
     # State for this session
     accumulated_transcript = ""
+    current_partial = ""
     current_nemsis = NEMSISRecord()
-    core_triggered = False       # medical DB lookup
-    gp_call_triggered = False    # GP voice call
+    core_triggered = False
+    gp_call_triggered = False
     extraction_lock = asyncio.Lock()
-    background_tasks: set[asyncio.Task] = set()
+    last_extracted_word_count = 0
+    extraction_task: asyncio.Task | None = None
+    stop_extraction = asyncio.Event()
+    extract_now = asyncio.Event()
+
     dummy_vitals_task: asyncio.Task | None = None
     dummy_running = True
     vitals_sequence = VitalsSequence(load_demo_vitals())
 
     async def _safe_send(data: dict) -> None:
-        """Send JSON to websocket, logging on failure."""
         try:
             await websocket.send_json(data)
         except Exception:
@@ -102,23 +102,27 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
         })
 
     async def on_partial(text: str):
-        """Handle partial transcript from ElevenLabs."""
+        nonlocal current_partial
+        current_partial = text
         await _safe_send({"type": "transcript_partial", "text": text})
 
+        full_text = (accumulated_transcript + " " + text).strip() if accumulated_transcript else text
+        current_word_count = len(full_text.split())
+        if current_word_count - last_extracted_word_count >= WORD_COUNT_THRESHOLD:
+            extract_now.set()
+
     async def on_committed(text: str):
-        """Handle committed transcript from ElevenLabs."""
-        nonlocal accumulated_transcript
+        nonlocal accumulated_transcript, current_partial
 
         now = datetime.now(UTC).isoformat()
+        current_partial = ""
 
-        # Save raw segment to database
         await db.execute(
             "INSERT INTO transcripts (case_id, segment_text, timestamp, segment_type)"
             " VALUES (?, ?, ?, ?)",
             (case_id, text, now, "committed"),
         )
 
-        # Append to accumulated transcript
         accumulated_transcript += (" " + text) if accumulated_transcript else text
         await db.execute(
             "UPDATE cases SET full_transcript = ?, updated_at = ? WHERE id = ?",
@@ -126,7 +130,6 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
         )
         await db.commit()
 
-        # Send committed transcript to client
         await _safe_send(
             {
                 "type": "transcript_committed",
@@ -134,148 +137,163 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
                 "full_transcript": accumulated_transcript,
             }
         )
+        extract_now.set()
 
-        # Run NEMSIS extraction (non-blocking but serialized)
-        task = asyncio.create_task(_run_extraction(text, now))
-        background_tasks.add(task)
-        task.add_done_callback(background_tasks.discard)
+    async def _extraction_loop():
+        nonlocal current_nemsis, core_triggered, gp_call_triggered, last_extracted_word_count
 
-    async def _run_extraction(segment_text: str, timestamp: str):
-        nonlocal current_nemsis, core_triggered, gp_call_triggered
-
-        async with extraction_lock:
+        while not stop_extraction.is_set():
             try:
-                current_nemsis = await extract_nemsis(
-                    accumulated_transcript, current_nemsis
+                done, pending = await asyncio.wait(
+                    [
+                        asyncio.create_task(extract_now.wait()),
+                        asyncio.create_task(stop_extraction.wait()),
+                    ],
+                    timeout=MAX_EXTRACTION_INTERVAL,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-                await _persist_and_emit_nemsis()
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            except asyncio.TimeoutError:
+                pass
 
-                # --- Trigger: Medical DB lookup (core info complete) ---
-                now = datetime.now(UTC).isoformat()
-                if not core_triggered and is_core_info_complete(current_nemsis):
-                    core_triggered = True
-                    await db.execute(
-                        "UPDATE cases SET core_info_complete = 1, updated_at = ?"
-                        " WHERE id = ?",
-                        (now, case_id),
-                    )
-                    await db.commit()
+            if stop_extraction.is_set():
+                break
 
-                    await _safe_send(
-                        {
-                            "type": "core_info_complete",
-                            "message": "Core patient info collected. "
-                            "Triggering medical DB lookup.",
-                        }
-                    )
+            extract_now.clear()
 
-                    # Trigger medical DB lookup
-                    db_response = await trigger_medical_db(current_nemsis)
+            full_text = accumulated_transcript
+            if current_partial:
+                full_text = (full_text + " " + current_partial).strip() if full_text else current_partial
 
-                    await db.execute(
-                        "UPDATE cases SET medical_db_response = ?,"
-                        " updated_at = ? WHERE id = ?",
-                        (
-                            db_response,
-                            datetime.now(UTC).isoformat(),
-                            case_id,
-                        ),
-                    )
-                    await db.commit()
+            current_word_count = len(full_text.split()) if full_text else 0
+            if current_word_count <= last_extracted_word_count:
+                continue
 
-                    await _safe_send(
-                        {
+            async with extraction_lock:
+                try:
+                    current_nemsis = await extract_nemsis(full_text, current_nemsis)
+                    last_extracted_word_count = current_word_count
+                    await _persist_and_emit_nemsis()
+
+                    # --- Trigger: Medical DB lookup (core info complete) ---
+                    now = datetime.now(UTC).isoformat()
+                    if not core_triggered and is_core_info_complete(current_nemsis):
+                        core_triggered = True
+                        await db.execute(
+                            "UPDATE cases SET core_info_complete = 1, updated_at = ?"
+                            " WHERE id = ?",
+                            (now, case_id),
+                        )
+                        await db.commit()
+
+                        await _safe_send(
+                            {
+                                "type": "core_info_complete",
+                                "message": "Core patient info collected. "
+                                "Triggering medical DB lookup.",
+                            }
+                        )
+                        await event_bus.publish(case_id, {"type": "core_info_complete"})
+
+                        db_response = await trigger_medical_db(current_nemsis)
+
+                        await db.execute(
+                            "UPDATE cases SET medical_db_response = ?,"
+                            " updated_at = ? WHERE id = ?",
+                            (db_response, datetime.now(UTC).isoformat(), case_id),
+                        )
+                        await db.commit()
+
+                        await _safe_send(
+                            {
+                                "type": "medical_db_complete",
+                                "medical_db_response": db_response,
+                            }
+                        )
+                        await event_bus.publish(case_id, {
                             "type": "medical_db_complete",
                             "medical_db_response": db_response,
-                        }
-                    )
-                    await event_bus.publish(case_id, {
-                        "type": "medical_db_complete",
-                        "medical_db_response": db_response,
-                    })
+                        })
 
-                    async def _update_insights_from_db():
-                        try:
-                            insights = await update_case_insights(case_id)
-                            await event_bus.publish(case_id, {
-                                "type": "clinical_insights",
-                                "insights": insights.model_dump(),
-                            })
-                        except Exception as exc:  # noqa: BLE001
-                            logger.warning("Failed to update clinical insights: %s", exc)
+                        async def _update_insights_from_db():
+                            try:
+                                insights = await update_case_insights(case_id)
+                                await event_bus.publish(case_id, {
+                                    "type": "clinical_insights",
+                                    "insights": insights.model_dump(),
+                                })
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("Failed to update clinical insights: %s", exc)
 
-                    asyncio.create_task(_update_insights_from_db())
+                        asyncio.create_task(_update_insights_from_db())
 
-                # --- Trigger: GP voice call (core info + GP contact) ---
-                if (
-                    not gp_call_triggered
-                    and is_core_info_complete(current_nemsis)
-                    and is_gp_contact_available(current_nemsis)
-                ):
-                    gp_call_triggered = True
+                    # --- Trigger: GP voice call (core info + GP contact) ---
+                    if (
+                        not gp_call_triggered
+                        and is_core_info_complete(current_nemsis)
+                        and is_gp_contact_available(current_nemsis)
+                    ):
+                        gp_call_triggered = True
 
-                    await _safe_send(
-                        {
-                            "type": "gp_call_triggered",
-                            "message": "GP contact detected. "
-                            "Initiating GP voice call.",
-                        }
-                    )
+                        await _safe_send(
+                            {
+                                "type": "gp_call_triggered",
+                                "message": "GP contact detected. Initiating GP voice call.",
+                            }
+                        )
 
-                    # Trigger GP call
-                    gp_response = await trigger_gp_call(
-                        current_nemsis, case_id
-                    )
+                        gp_response = await trigger_gp_call(current_nemsis, case_id)
 
-                    await db.execute(
-                        "UPDATE cases SET gp_response = ?,"
-                        " updated_at = ? WHERE id = ?",
-                        (
-                            gp_response,
-                            datetime.now(UTC).isoformat(),
-                            case_id,
-                        ),
-                    )
-                    await db.commit()
+                        await db.execute(
+                            "UPDATE cases SET gp_response = ?,"
+                            " updated_at = ? WHERE id = ?",
+                            (gp_response, datetime.now(UTC).isoformat(), case_id),
+                        )
+                        await db.commit()
 
-                    await _safe_send(
-                        {
+                        await _safe_send(
+                            {
+                                "type": "gp_call_complete",
+                                "gp_response": gp_response,
+                            }
+                        )
+                        await event_bus.publish(case_id, {
                             "type": "gp_call_complete",
                             "gp_response": gp_response,
-                        }
-                    )
-                    await event_bus.publish(case_id, {
-                        "type": "gp_call_complete",
-                        "gp_response": gp_response,
-                    })
+                        })
 
-                    async def _update_insights_from_gp():
-                        try:
-                            insights = await update_case_insights(case_id)
-                            await event_bus.publish(case_id, {
-                                "type": "clinical_insights",
-                                "insights": insights.model_dump(),
-                            })
-                        except Exception as exc:  # noqa: BLE001
-                            logger.warning("Failed to update clinical insights: %s", exc)
+                        async def _update_insights_from_gp():
+                            try:
+                                insights = await update_case_insights(case_id)
+                                await event_bus.publish(case_id, {
+                                    "type": "clinical_insights",
+                                    "insights": insights.model_dump(),
+                                })
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("Failed to update clinical insights: %s", exc)
 
-                    asyncio.create_task(_update_insights_from_gp())
+                        asyncio.create_task(_update_insights_from_gp())
 
-                if DUMMY_MODE:
-                    async def _update_insights_from_nemsis():
-                        try:
-                            insights = await update_case_insights(case_id)
-                            await event_bus.publish(case_id, {
-                                "type": "clinical_insights",
-                                "insights": insights.model_dump(),
-                            })
-                        except Exception as exc:  # noqa: BLE001
-                            logger.warning("Failed to update clinical insights: %s", exc)
+                    if DUMMY_MODE:
+                        async def _update_insights_from_nemsis():
+                            try:
+                                insights = await update_case_insights(case_id)
+                                await event_bus.publish(case_id, {
+                                    "type": "clinical_insights",
+                                    "insights": insights.model_dump(),
+                                })
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("Failed to update clinical insights: %s", exc)
 
-                    asyncio.create_task(_update_insights_from_nemsis())
+                        asyncio.create_task(_update_insights_from_nemsis())
 
-            except Exception as e:
-                logger.error(f"NEMSIS extraction error: {e}")
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("NEMSIS extraction error: %s", exc)
 
     async def _dummy_vitals_loop() -> None:
         nonlocal current_nemsis
@@ -355,17 +373,18 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
     )
     if existing:
         accumulated_transcript = existing["full_transcript"] or ""
+        last_extracted_word_count = len(accumulated_transcript.split()) if accumulated_transcript else 0
         try:
             current_nemsis = NEMSISRecord.model_validate_json(existing["nemsis_data"])
         except Exception:
-            logger.warning(f"Failed to parse NEMSIS data for case {case_id}")
+            logger.warning("Failed to parse NEMSIS data for case %s", case_id)
             current_nemsis = NEMSISRecord()
         core_triggered = bool(existing["core_info_complete"])
 
-    # Start transcription service
     stt = TranscriptionService(on_partial=on_partial, on_committed=on_committed)
     await stt.start()
 
+    extraction_task = asyncio.create_task(_extraction_loop())
     if DUMMY_MODE:
         dummy_vitals_task = asyncio.create_task(_dummy_vitals_loop())
 
@@ -379,10 +398,18 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
             elif data.get("type") == "end_call":
                 break
     except WebSocketDisconnect:
-        logger.info(f"Client disconnected from case {case_id}")
-    except Exception as e:
-        logger.error(f"WebSocket error for case {case_id}: {e}")
+        logger.info("Client disconnected from case %s", case_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("WebSocket error for case %s: %s", case_id, exc)
     finally:
+        stop_extraction.set()
+        if extraction_task:
+            extraction_task.cancel()
+            try:
+                await extraction_task
+            except asyncio.CancelledError:
+                pass
+
         dummy_running = False
         if dummy_vitals_task:
             dummy_vitals_task.cancel()
@@ -390,8 +417,20 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
                 await dummy_vitals_task
             except asyncio.CancelledError:
                 pass
+
         await stt.stop()
-        # Mark case as completed if it was active
+
+        if len(accumulated_transcript.split()) > last_extracted_word_count:
+            logger.info("Running final NEMSIS extraction before closing")
+            try:
+                async with extraction_lock:
+                    current_nemsis = await extract_nemsis(
+                        accumulated_transcript, current_nemsis
+                    )
+                    await _persist_and_emit_nemsis()
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Final NEMSIS extraction error: %s", exc)
+
         now = datetime.now(UTC).isoformat()
         await db.execute(
             "UPDATE cases SET status = 'completed', updated_at = ?"

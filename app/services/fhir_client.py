@@ -25,7 +25,7 @@ FHIR_HEADERS = {
     "Accept": "application/fhir+json",
 }
 
-FHIR_TIMEOUT = 45.0
+FHIR_TIMEOUT = 15.0
 
 
 def _extract_display(codeable_concept: dict) -> str:

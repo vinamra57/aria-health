@@ -9,16 +9,12 @@ let sceneTimerInterval = null;
 let sceneStartTime = null;
 let coreInfoComplete = false;
 
-// Data source status tracking
+// Store fetched medical history
+let fetchedMedicalHistory = null;
+
+// Data source status tracking - FHIR/Synthea is the real source
 const dataSources = {
-    HIE: { status: 'waiting', name: 'Regional HIE Network' },
-    Particle: { status: 'waiting', name: 'Particle Health API' },
-    FHIR: { status: 'waiting', name: 'FHIR R4 / Synthea' },
-    EHR: { status: 'waiting', name: 'EHR Systems Query' },
-    PDMP: { status: 'waiting', name: 'PDMP Registry' },
-    Pharmacy: { status: 'waiting', name: 'Pharmacy Networks' },
-    IIS: { status: 'waiting', name: 'Immunization Registry' },
-    GP: { status: 'waiting', name: 'Primary Care Provider' }
+    FHIR: { status: 'waiting', name: 'FHIR R4 / Synthea' }
 };
 
 // --- Case Management ---
@@ -347,10 +343,9 @@ function onCoreInfoComplete() {
     document.getElementById("sourcesMessage").style.display = "none";
     document.getElementById("sourcesGrid").style.display = "flex";
     document.getElementById("patientHistory").style.display = "block";
-    document.getElementById("sourcesStatus").textContent = "Querying Sources...";
+    document.getElementById("sourcesStatus").textContent = "Querying Synthea FHIR...";
     document.getElementById("sourcesStatus").classList.add("active");
-
-    // Start querying sources (real backend will notify when done)
+    // Start querying sources (backend will notify when done)
     startSourceLookup();
 }
 
@@ -376,22 +371,24 @@ function setSourceStatus(sourceId, status) {
     }
 }
 
-function updateSourceResult(sourceId, overrideText) {
+function updateSourceResult(sourceId, payload) {
     const resultEl = document.getElementById(`result${sourceId}`);
     if (!resultEl) return;
 
-    const results = {
-        FHIR: '4 conditions, 6 meds',
-        HIE: '3 encounters found',
-        Particle: '2 providers linked',
-        EHR: 'Records retrieved',
-        PDMP: 'Rx history found',
-        Pharmacy: '5 prescriptions',
-        IIS: '8 immunizations',
-        GP: 'History received'
-    };
+    if (typeof payload === 'string') {
+        resultEl.textContent = payload;
+        return;
+    }
 
-    resultEl.textContent = overrideText || results[sourceId] || 'Data found';
+    if (sourceId === 'FHIR' && payload) {
+        const condCount = payload.conditions?.length || 0;
+        const medCount = payload.medications?.length || 0;
+        const allergyCount = payload.allergies?.length || 0;
+        resultEl.textContent = `${condCount} conditions, ${medCount} meds, ${allergyCount} allergies`;
+        return;
+    }
+
+    resultEl.textContent = 'Data found';
 }
 
 // --- Show Aggregated Patient History ---
@@ -406,59 +403,199 @@ function showAggregatedHistory(history) {
         medications: [],
         conditions: [],
         immunizations: [],
-        procedures: []
+        procedures: [],
     };
 
-    // Populate allergies
+    const allergies = data.allergies || [];
+    const medications = data.medications || [];
+    const conditions = data.conditions || [];
+    const immunizations = data.immunizations || [];
+    const procedures = data.procedures || [];
+
+    if (
+        !allergies.length
+        && !medications.length
+        && !conditions.length
+        && !immunizations.length
+        && !procedures.length
+    ) {
+        showNoRecordsMessage();
+        return;
+    }
+
+    // Allergies section - hide entirely if no allergies
+    const allergiesSection = document.getElementById("allergiesSection");
     const allergiesEl = document.getElementById("historyAllergies");
-    allergiesEl.innerHTML = data.allergies.length
-        ? data.allergies.map(a => `<span class="history-item allergy">${escapeHtml(a)}</span>`).join('')
-        : '<span class="no-data">No allergies found</span>';
+    if (allergies.length > 0) {
+        allergiesSection.style.display = 'block';
+        allergiesEl.innerHTML = allergies.map(a => 
+            `<span class="history-item allergy">${escapeHtml(a)}</span>`
+        ).join('');
+    } else {
+        allergiesSection.style.display = 'none';
+    }
 
-    // Populate medications
+    // Medications section - hide if empty
+    const medsSection = document.getElementById("medicationsSection");
     const medsEl = document.getElementById("historyMedications");
-    medsEl.innerHTML = data.medications.length
-        ? data.medications.map(m => `<span class="history-item medication">${escapeHtml(m)}</span>`).join('')
-        : '<span class="no-data">No medications found</span>';
+    if (medications.length > 0) {
+        medsSection.style.display = 'block';
+        medsEl.innerHTML = medications.map(m => 
+            `<span class="history-item medication">${escapeHtml(m)}</span>`
+        ).join('');
+    } else {
+        medsSection.style.display = 'none';
+    }
 
-    // Populate conditions
+    // Conditions section - hide if empty
+    const conditionsSection = document.getElementById("conditionsSection");
     const conditionsEl = document.getElementById("historyConditions");
-    conditionsEl.innerHTML = data.conditions.length
-        ? data.conditions.map(c => `<span class="history-item condition">${escapeHtml(c)}</span>`).join('')
-        : '<span class="no-data">No conditions found</span>';
+    if (conditions.length > 0) {
+        conditionsSection.style.display = 'block';
+        conditionsEl.innerHTML = conditions.map(c => 
+            `<span class="history-item condition">${escapeHtml(c)}</span>`
+        ).join('');
+    } else {
+        conditionsSection.style.display = 'none';
+    }
 
-    // Populate immunizations
+    // Immunizations section - hide if empty
+    const immuneSection = document.getElementById("immunizationsSection");
     const immuneEl = document.getElementById("historyImmunizations");
-    immuneEl.innerHTML = data.immunizations.length
-        ? data.immunizations.map(i => `<span class="history-item">${escapeHtml(i)}</span>`).join('')
-        : '<span class="no-data">No immunizations found</span>';
+    if (immunizations.length > 0) {
+        immuneSection.style.display = 'block';
+        immuneEl.innerHTML = immunizations.map(i => 
+            `<span class="history-item">${escapeHtml(i)}</span>`
+        ).join('');
+    } else {
+        immuneSection.style.display = 'none';
+    }
 
-    // Populate procedures
+    // Procedures section - hide if empty
+    const procSection = document.getElementById("proceduresSection");
     const procEl = document.getElementById("historyProcedures");
-    procEl.innerHTML = data.procedures.length
-        ? data.procedures.map(p => `<span class="history-item">${escapeHtml(p)}</span>`).join('')
-        : '<span class="no-data">No procedures found</span>';
+    if (procedures.length > 0) {
+        procSection.style.display = 'block';
+        // Limit to most recent 10 procedures
+        const recentProcs = procedures.slice(0, 10);
+        procEl.innerHTML = recentProcs.map(p => 
+            `<span class="history-item">${escapeHtml(p)}</span>`
+        ).join('');
+        if (procedures.length > 10) {
+            procEl.innerHTML += `<span class="history-item muted">...and ${procedures.length - 10} more</span>`;
+        }
+    } else {
+        procSection.style.display = 'none';
+    }
 }
 
-function showClinicalAlerts() {
+function showNoRecordsMessage() {
+    document.getElementById("sourceCount").textContent = "0";
+    // Hide all data sections since patient not found
+    document.getElementById("allergiesSection").style.display = 'none';
+    document.getElementById("medicationsSection").style.display = 'none';
+    document.getElementById("conditionsSection").style.display = 'none';
+    document.getElementById("immunizationsSection").style.display = 'none';
+    document.getElementById("proceduresSection").style.display = 'none';
+    // Show not found message
+    document.getElementById("patientHistory").innerHTML = `
+        <div class="history-header">
+            <h3>📁 Patient Medical History</h3>
+            <span class="history-sources">Patient not found in FHIR database</span>
+        </div>
+        <div class="history-section">
+            <p class="no-data">No matching patient records found in connected health systems.</p>
+        </div>
+    `;
+}
+
+function showClinicalAlerts(history) {
     const alertsSection = document.getElementById("clinicalAlerts");
     const alertsContent = document.getElementById("alertsContent");
     
-    alertsSection.style.display = "block";
-    alertsContent.innerHTML = `
-        <div class="alert-item">
-            <div class="alert-title">⚠️ PENICILLIN ALLERGY</div>
-            <div class="alert-desc">Patient has severe penicillin allergy. Avoid beta-lactam antibiotics.</div>
-        </div>
-        <div class="alert-item warning">
-            <div class="alert-title">💊 Drug Interaction Check</div>
-            <div class="alert-desc">Metformin + contrast: Hold metformin if CT with contrast needed.</div>
-        </div>
-        <div class="alert-item warning">
-            <div class="alert-title">🩺 Chronic Conditions</div>
-            <div class="alert-desc">CKD Stage 2: Adjust renal-cleared medications. Monitor fluid status.</div>
-        </div>
-    `;
+    const alerts = [];
+    
+    // Only generate alerts from REAL allergy data
+    const allergies = history?.allergies || [];
+    for (const allergy of allergies) {
+        const allergyLower = allergy.toLowerCase();
+        if (allergyLower.includes('penicillin') || allergyLower.includes('amoxicillin')) {
+            alerts.push({
+                type: 'danger',
+                title: '⚠️ PENICILLIN ALLERGY',
+                desc: `Patient allergic to: ${allergy}. Avoid beta-lactam antibiotics.`
+            });
+        } else if (allergyLower.includes('sulfa') || allergyLower.includes('sulfonamide')) {
+            alerts.push({
+                type: 'danger',
+                title: '⚠️ SULFA ALLERGY',
+                desc: `Patient allergic to: ${allergy}. Avoid sulfonamide drugs.`
+            });
+        } else if (allergyLower.includes('latex')) {
+            alerts.push({
+                type: 'danger',
+                title: '⚠️ LATEX ALLERGY',
+                desc: `${allergy} - Use latex-free gloves and equipment.`
+            });
+        } else if (allergy && !allergyLower.includes('no known')) {
+            alerts.push({
+                type: 'warning',
+                title: '💊 Allergy Alert',
+                desc: `Patient allergic to: ${allergy}`
+            });
+        }
+    }
+    
+    // Only generate alerts from REAL condition data
+    const conditions = history?.conditions || [];
+    for (const condition of conditions) {
+        const condLower = condition.toLowerCase();
+        if (condLower.includes('diabetes')) {
+            alerts.push({
+                type: 'warning',
+                title: '🩺 Diabetes',
+                desc: `${condition} - Monitor blood glucose, consider insulin requirements.`
+            });
+        } else if (condLower.includes('kidney') || condLower.includes('renal')) {
+            alerts.push({
+                type: 'warning',
+                title: '🩺 Renal Condition',
+                desc: `${condition} - Adjust renal-cleared medications. Monitor fluid status.`
+            });
+        } else if (condLower.includes('cardiac arrest') || condLower.includes('heart failure')) {
+            alerts.push({
+                type: 'danger',
+                title: '❤️ Cardiac History',
+                desc: `${condition} - Cardiac monitoring recommended.`
+            });
+        } else if (condLower.includes('hypertension')) {
+            alerts.push({
+                type: 'warning',
+                title: '❤️ Hypertension',
+                desc: `${condition} - Monitor blood pressure.`
+            });
+        } else if (condLower.includes('overdose')) {
+            alerts.push({
+                type: 'danger',
+                title: '⚠️ Overdose History',
+                desc: `${condition} - Consider substance use history.`
+            });
+        }
+    }
+    
+    // Only show alerts section if there are actual alerts
+    if (alerts.length > 0) {
+        alertsSection.style.display = "block";
+        alertsContent.innerHTML = alerts.map(a => `
+            <div class="alert-item ${a.type === 'danger' ? '' : 'warning'}">
+                <div class="alert-title">${a.title}</div>
+                <div class="alert-desc">${escapeHtml(a.desc)}</div>
+            </div>
+        `).join('');
+    } else {
+        // Hide alerts section entirely if no alerts
+        alertsSection.style.display = "none";
+    }
 }
 
 function showHospitalBanner() {
@@ -562,6 +699,7 @@ function clearUI() {
     document.querySelectorAll(".core-dot").forEach((d) => (d.className = "core-dot"));
     document.getElementById("coreCompleteIndicator").style.display = "none";
     coreInfoComplete = false;
+    fetchedMedicalHistory = null;
 
     // Reset sources panel
     document.getElementById("sourcesMessage").style.display = "block";

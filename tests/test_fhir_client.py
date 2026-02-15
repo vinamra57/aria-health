@@ -1,4 +1,5 @@
 """Tests for FHIR R4 client service - parsing and queries."""
+"""Tests for FHIR R4 client service - parsing and queries."""
 
 from app.services.fhir_client import (
     _extract_display,
@@ -400,16 +401,22 @@ class TestParseProcedures:
         assert parse_procedures_list([]) == []
 
 
-# --- Integration: query_fhir_servers (live FHIR server) ---
+# --- Integration: query_fhir_servers with Synthea data ---
 
 
-async def test_query_fhir_servers_known_patient():
-    """query_fhir_servers returns structured data for a known FHIR patient."""
-    result = await query_fhir_servers("John Smith", "male")
-    assert result is not None
-    assert "patient_name" in result
-    assert "conditions" in result
-    assert isinstance(result["conditions"], list)
+async def test_query_fhir_servers_with_synthea_patient():
+    """Query real FHIR server for a known Synthea patient."""
+    result = await query_fhir_servers("Babara Rice", "female")
+    # Result may be None if FHIR server is unreachable
+    if result is not None:
+        assert "conditions" in result
+        assert "allergies" in result
+        assert "medications" in result
+    assert result["patient_gender"] == "male"
+    assert result["patient_dob"] == "1990-05-15"
+    assert len(result["conditions"]) > 0
+    assert len(result["allergies"]) > 0
+    assert len(result["medications"]) > 0
 
 
 async def test_query_fhir_servers_unknown_patient():
