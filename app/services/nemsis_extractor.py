@@ -1,19 +1,10 @@
 import json
 import logging
-import re
 
-from anthropic import AsyncAnthropic
-
-from app.config import ANTHROPIC_API_KEY
 from app.models.nemsis import NEMSISRecord
+from app.services import llm
 
 logger = logging.getLogger(__name__)
-
-try:
-    client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
-except Exception as e:
-    logger.warning("Anthropic client init failed (NEMSIS extraction will be skipped): %s", e)
-    client = None
 
 SYSTEM_PROMPT = """You are an EMS data extraction AI specialized in NEMSIS v3.5-compliant ePCR (Electronic Patient Care Report) fields.
 
@@ -45,14 +36,14 @@ Schema:"""
 
 
 def _json_schema_prompt() -> str:
-    """Return the JSON schema for NEMSISRecord so Claude can output valid JSON."""
+    """Return the JSON schema for NEMSISRecord so the LLM can output valid JSON."""
     schema = NEMSISRecord.model_json_schema()
     return json.dumps(schema, indent=2)
 
 
 async def extract_nemsis(transcript: str, existing: NEMSISRecord | None = None) -> NEMSISRecord:
-    """Extract NEMSIS-compliant data from transcript using Claude (raw text to table)."""
-    if not client:
+    """Extract NEMSIS-compliant data from transcript using LLM structured output."""
+    if not llm.is_available():
         return existing or NEMSISRecord()
 
     context = ""
@@ -66,23 +57,14 @@ async def extract_nemsis(transcript: str, existing: NEMSISRecord | None = None) 
     )
 
     try:
-        message = await client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=4096,
-            system=SYSTEM_PROMPT + "\n" + _json_schema_prompt(),
-            messages=[{"role": "user", "content": user_content}],
+        raw = await llm.raw_structured_completion(
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT + "\n" + _json_schema_prompt()},
+                {"role": "user", "content": user_content},
+            ],
+            schema=NEMSISRecord.model_json_schema(),
+            schema_name="nemsis_record",
         )
-
-        raw = ""
-        for block in message.content:
-            if hasattr(block, "text"):
-                raw += block.text
-
-        # Strip optional markdown code fence
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
 
         extracted = NEMSISRecord.model_validate_json(raw)
 

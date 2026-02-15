@@ -460,32 +460,29 @@ class TestDummyFhirResponse:
         assert r1 == r2
 
 
-# --- Integration: query_fhir_servers in dummy mode ---
+# --- Integration: query_fhir_servers (live FHIR server) ---
 
 
-async def test_query_fhir_servers_dummy_mode():
-    """In dummy mode, query_fhir_servers returns synthetic data without network calls."""
-    result = await query_fhir_servers("John Smith", "male", "1990-05-15")
+async def test_query_fhir_servers_known_patient():
+    """query_fhir_servers returns structured data for a known FHIR patient."""
+    result = await query_fhir_servers("John Smith", "male")
     assert result is not None
-    assert result["patient_name"] == "John Smith"
-    assert result["patient_gender"] == "male"
-    assert result["patient_dob"] == "1990-05-15"
-    assert len(result["conditions"]) > 0
-    assert len(result["allergies"]) > 0
-    assert len(result["medications"]) > 0
+    assert "patient_name" in result
+    assert "conditions" in result
+    assert isinstance(result["conditions"], list)
 
 
-async def test_query_fhir_servers_dummy_no_gender():
-    """Dummy mode handles missing gender."""
-    result = await query_fhir_servers("Jane Doe")
-    assert result is not None
-    assert result["patient_gender"] == "unknown"
+async def test_query_fhir_servers_unknown_patient():
+    """query_fhir_servers returns None for a patient not in any FHIR server."""
+    result = await query_fhir_servers("Zxywqp McFakerson", "male", "2099-01-01")
+    assert result is None
 
 
-async def test_query_fhir_servers_dummy_structure():
-    """Verify the full structure of dummy FHIR response."""
-    result = await query_fhir_servers("Test Patient", "female", "1985-03-20")
-    assert result is not None
+async def test_query_fhir_servers_result_structure():
+    """Verify the full structure of a FHIR query result."""
+    result = await query_fhir_servers("John Smith", "male")
+    if result is None:
+        return  # FHIR server may be unavailable
     expected_keys = {
         "source", "fhir_patient_id", "patient_name", "patient_dob",
         "patient_gender", "conditions", "allergies", "medications",

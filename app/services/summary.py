@@ -1,20 +1,11 @@
 import json
 import logging
-import re
 
-from anthropic import AsyncAnthropic
-
-from app.config import ANTHROPIC_API_KEY
 from app.database import get_db
 from app.models.summary import CaseSummary, HospitalSummary
+from app.services import llm
 
 logger = logging.getLogger(__name__)
-
-try:
-    client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
-except Exception as e:
-    logger.warning("Anthropic client init failed (summary will be disabled): %s", e)
-    client = None
 
 CASE_SUMMARY_PROMPT = """You are a clinical summarization AI for emergency medical services.
 
@@ -78,17 +69,8 @@ async def _load_case_data(case_id: str) -> dict:
     }
 
 
-def _extract_json_from_response(raw: str) -> str:
-    """Strip markdown code fence if present and return JSON string."""
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-    return raw
-
-
 def _empty_case_summary() -> CaseSummary:
-    """Minimal valid case summary when Claude is not available."""
+    """Minimal valid case summary when no LLM is available."""
     return CaseSummary(
         one_liner="No summary available.",
         clinical_narrative="",
@@ -99,7 +81,7 @@ def _empty_case_summary() -> CaseSummary:
 
 
 def _empty_hospital_summary() -> HospitalSummary:
-    """Minimal valid hospital summary when Claude is not available."""
+    """Minimal valid hospital summary when no LLM is available."""
     return HospitalSummary(
         patient_demographics="",
         chief_complaint="",
@@ -115,10 +97,10 @@ def _empty_hospital_summary() -> HospitalSummary:
 
 
 async def generate_summary(case_id: str, urgency: str = "standard") -> CaseSummary:
-    """Generate a case summary using Claude."""
+    """Generate a case summary using LLM structured output."""
     data = await _load_case_data(case_id)
 
-    if not client:
+    if not llm.is_available():
         return _empty_case_summary()
 
     user_content = (
@@ -130,28 +112,28 @@ async def generate_summary(case_id: str, urgency: str = "standard") -> CaseSumma
     )
 
     try:
-        message = await client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=2048,
-            system=CASE_SUMMARY_PROMPT,
-            messages=[{"role": "user", "content": user_content}],
+        parsed = await llm.structured_completion(
+            messages=[
+                {"role": "system", "content": CASE_SUMMARY_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            response_model=CaseSummary,
+            schema_name="case_summary",
         )
-        raw = ""
-        for block in message.content:
-            if hasattr(block, "text"):
-                raw += block.text
-        raw = _extract_json_from_response(raw)
-        return CaseSummary.model_validate_json(raw)
+        if parsed is None:
+            logger.error("LLM returned no parsed case summary for case %s", case_id)
+            return _empty_case_summary()
+        return parsed
     except Exception as e:
         logger.error("Case summary generation failed for %s: %s", case_id, e)
         return _empty_case_summary()
 
 
 async def get_summary_for_hospital(case_id: str) -> HospitalSummary:
-    """Generate a hospital preparation summary using Claude."""
+    """Generate a hospital preparation summary using LLM."""
     data = await _load_case_data(case_id)
 
-    if not client:
+    if not llm.is_available():
         return _empty_hospital_summary()
 
     user_content = (
@@ -162,18 +144,18 @@ async def get_summary_for_hospital(case_id: str) -> HospitalSummary:
     )
 
     try:
-        message = await client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=2048,
-            system=HOSPITAL_SUMMARY_PROMPT,
-            messages=[{"role": "user", "content": user_content}],
+        parsed = await llm.structured_completion(
+            messages=[
+                {"role": "system", "content": HOSPITAL_SUMMARY_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            response_model=HospitalSummary,
+            schema_name="hospital_summary",
         )
-        raw = ""
-        for block in message.content:
-            if hasattr(block, "text"):
-                raw += block.text
-        raw = _extract_json_from_response(raw)
-        return HospitalSummary.model_validate_json(raw)
+        if parsed is None:
+            logger.error("LLM returned no parsed hospital summary for case %s", case_id)
+            return _empty_hospital_summary()
+        return parsed
     except Exception as e:
         logger.error("Hospital summary generation failed for %s: %s", case_id, e)
         return _empty_hospital_summary()

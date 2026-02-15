@@ -7,8 +7,11 @@ from httpx import ASGITransport, AsyncClient
 
 # In-memory DB and no API keys for tests
 os.environ["OPENAI_API_KEY"] = ""
+os.environ["ANTHROPIC_API_KEY"] = ""
 os.environ["ELEVENLABS_API_KEY"] = ""
 os.environ["DATABASE_PATH"] = ":memory:"
+os.environ["MODAL_ENDPOINT_URL"] = ""
+os.environ["MODAL_MODEL_NAME"] = ""
 
 from app.database import close_db, get_db, init_db
 from app.main import app

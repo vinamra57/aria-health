@@ -2,7 +2,7 @@
 
 from app.services.voice_agent import _dummy_call, place_gp_call
 
-# --- Dummy Call ---
+# --- Dummy Call Helper ---
 
 
 class TestDummyCall:
@@ -35,11 +35,11 @@ class TestDummyCall:
         assert result["status"] == "dummy"
 
 
-# --- Place GP Call (dummy mode) ---
+# --- Place GP Call (no ElevenLabs key in tests) ---
 
 
-async def test_place_gp_call_dummy_mode():
-    """In dummy mode, place_gp_call returns synthetic result without API call."""
+async def test_place_gp_call_no_api_key():
+    """Without ELEVENLABS_API_KEY, place_gp_call returns error status."""
     result = await place_gp_call(
         phone_number="+1-555-0123",
         patient_name="John Smith",
@@ -47,32 +47,16 @@ async def test_place_gp_call_dummy_mode():
         hospital_callback="+1-555-0100",
         case_id="test-case-001",
     )
-    assert result["status"] == "dummy"
-    assert "John Smith" in result["transcript"]
-    assert result["call_sid"] is not None
-    assert result["conversation_id"] is not None
+    assert result["status"] == "error"
+    assert result["call_sid"] is None
 
 
-async def test_place_gp_call_dummy_no_dob():
-    """Dummy mode works without DOB."""
+async def test_place_gp_call_no_api_key_no_dob():
+    """Without API key and no DOB, returns error gracefully."""
     result = await place_gp_call(
         phone_number="+1-555-0123",
         patient_name="Jane Doe",
         patient_dob=None,
         case_id="test-case-002",
     )
-    assert result["status"] == "dummy"
-    assert "Jane Doe" in result["transcript"]
-
-
-async def test_place_gp_call_dummy_transcript_has_medical_info():
-    """Dummy transcript includes clinical information."""
-    result = await place_gp_call(
-        phone_number="+1-555-0123",
-        patient_name="Test Patient",
-        patient_dob="1990-01-01",
-        case_id="test-case-003",
-    )
-    transcript = result["transcript"]
-    # Dummy transcript should mention medications or allergies
-    assert "medication" in transcript.lower() or "allerg" in transcript.lower()
+    assert result["status"] == "error"
