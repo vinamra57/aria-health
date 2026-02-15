@@ -56,6 +56,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
     extraction_task: asyncio.Task | None = None
     stop_extraction = asyncio.Event()
     extract_now = asyncio.Event()
+    end_call_received = False
 
     dummy_vitals_task: asyncio.Task | None = None
     dummy_running = True
@@ -396,6 +397,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
             if data.get("type") == "audio_chunk":
                 await stt.send_audio(data.get("data", ""))
             elif data.get("type") == "end_call":
+                end_call_received = True
                 break
     except WebSocketDisconnect:
         logger.info("Client disconnected from case %s", case_id)
@@ -432,6 +434,8 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
                 logger.error("Final NEMSIS extraction error: %s", exc)
 
         now = datetime.now(UTC).isoformat()
+        if end_call_received:
+            await event_bus.publish(case_id, {"type": "arrival_status", "status": "arrived"})
         await db.execute(
             "UPDATE cases SET status = 'completed', updated_at = ?"
             " WHERE id = ? AND status = 'active'",

@@ -17,15 +17,17 @@ let chartLoopStarted = false;
 let liveStreamActive = false;
 
 class LiveChart {
-    constructor(canvasId, color, min, max) {
+    constructor(canvasId, color, min, max, waveAmp = 0.8) {
         this.canvas = document.getElementById(canvasId);
         this.ctx = this.canvas.getContext("2d");
         this.color = color;
         this.min = min;
         this.max = max;
+        this.waveAmp = waveAmp;
         this.data = Array(40).fill(null);
         this.current = null;
         this.target = null;
+        this.phase = Math.random() * Math.PI * 2;
     }
 
     setTarget(value) {
@@ -45,9 +47,11 @@ class LiveChart {
     tick() {
         if (!liveStreamActive) return;
         if (this.target == null || this.current == null) return;
-        const delta = (this.target - this.current) * 0.35;
-        const noise = (Math.random() - 0.5) * (this.max - this.min) * 0.003;
-        const next = Math.max(this.min, Math.min(this.max, this.current + delta + noise));
+        const delta = (this.target - this.current) * 0.28;
+        const noise = (Math.random() - 0.5) * (this.max - this.min) * 0.004;
+        this.phase += 0.35;
+        const wave = Math.sin(this.phase) * this.waveAmp;
+        const next = Math.max(this.min, Math.min(this.max, this.current + delta + noise + wave));
         this.current = next;
         this._push(next);
     }
@@ -86,9 +90,9 @@ class LiveChart {
 }
 
 function initCharts() {
-    charts.hr = new LiveChart("hrChart", "#38bdf8", 40, 160);
-    charts.spo2 = new LiveChart("spo2Chart", "#22c55e", 80, 100);
-    charts.bp = new LiveChart("bpChart", "#f59e0b", 60, 200);
+    charts.hr = new LiveChart("hrChart", "#0ea5e9", 40, 160, 1.6);
+    charts.spo2 = new LiveChart("spo2Chart", "#16a34a", 80, 100, 0.4);
+    charts.bp = new LiveChart("bpChart", "#64748b", 60, 200, 1.2);
 
     if (!chartLoopStarted) {
         chartLoopStarted = true;
@@ -97,7 +101,7 @@ function initCharts() {
             charts.hr.tick();
             charts.spo2.tick();
             charts.bp.tick();
-        }, 350);
+        }, 250);
     }
 }
 
@@ -164,6 +168,11 @@ function handleEvent(msg) {
         cases[caseId].gp_response = msg.gp_response;
     } else if (msg.type === "clinical_insights") {
         cases[caseId].insights = msg.insights;
+    } else if (msg.type === "arrival_status") {
+        cases[caseId].arrival_status = msg.status;
+        if (selectedCaseId === caseId && msg.status === "arrived") {
+            setMode("arrived");
+        }
     }
 
     renderCaseList();
@@ -239,14 +248,17 @@ async function loadCaseBundle(caseId) {
 function renderCaseList() {
     const body = document.getElementById("caseListBody");
     const ids = Object.keys(cases);
-    document.getElementById("caseCount").textContent = ids.length;
+    document.getElementById("caseCount").textContent = ids.length ? "1" : "0";
 
     if (ids.length === 0) {
         body.innerHTML = '<div class="empty-state">No active cases</div>';
         return;
     }
 
-    body.innerHTML = ids.map((id) => {
+    const activeId = selectedCaseId && cases[selectedCaseId] ? selectedCaseId : ids[0];
+    const renderIds = [activeId];
+
+    body.innerHTML = renderIds.map((id) => {
         const c = cases[id];
         const nemsis = c.nemsis || {};
         const patient = nemsis.patient || {};
