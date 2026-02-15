@@ -5,7 +5,6 @@ Deploy:
 
 After deployment, set in your .env:
     MODAL_ENDPOINT_URL=https://<workspace>--vllm-inference-serve.modal.run/v1
-    DUMMY_MODE=false
 
 The endpoint is OpenAI-compatible so the app's ``llm.py`` module connects
 with ``openai.AsyncOpenAI(base_url=..., api_key="modal")``.

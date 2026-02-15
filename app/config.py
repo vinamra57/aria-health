@@ -18,11 +18,6 @@ MODAL_MODEL_NAME = os.getenv(
 # Perplexity Sonar API (GP contact resolution)
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "")
 
-# Twilio (outbound voice calls)
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
-TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "")
-
 # ElevenLabs Conversational AI (voice agent)
 ELEVENLABS_AGENT_ID = os.getenv("ELEVENLABS_AGENT_ID", "")
 ELEVENLABS_PHONE_NUMBER_ID = os.getenv("ELEVENLABS_PHONE_NUMBER_ID", "")

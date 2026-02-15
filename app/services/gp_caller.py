@@ -130,12 +130,7 @@ async def call_gp(
             logger.error("Failed to update case GP call status: %s", e)
 
     # 6. Build status string
-    if outcome == "dummy":
-        return (
-            f"[DUMMY] GP call placed to {phone_number} for {patient_name}. "
-            f"{call_result.get('transcript', '')}"
-        )
-    elif outcome == "initiated":
+    if outcome == "initiated":
         return (
             f"GP call initiated to {phone_number} for {patient_name}. "
             f"Call SID: {call_result.get('call_sid')}. "

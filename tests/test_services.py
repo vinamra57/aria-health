@@ -260,7 +260,7 @@ async def test_gp_caller_no_contact():
     assert "No GP contact available" in result
 
 
-# --- Medical DB (FHIR-backed, dummy mode) ---
+# --- Medical DB (FHIR-backed) ---
 
 
 async def test_medical_db():
@@ -275,7 +275,7 @@ async def test_medical_db():
     assert "ALLERGIES (CRITICAL)" in result
 
 
-# --- Summary Service (Dummy Mode) ---
+# --- Summary Service ---
 
 
 STEMI_CASE_DATA = {

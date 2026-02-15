@@ -41,13 +41,13 @@ class TestNoneBackendGuards:
     async def test_structured_completion_raises(self):
         from pydantic import BaseModel
 
-        class Dummy(BaseModel):
+        class SampleModel(BaseModel):
             value: str = ""
 
         with pytest.raises(RuntimeError, match="no client"):
             await llm.structured_completion(
                 messages=[{"role": "user", "content": "test"}],
-                response_model=Dummy,
+                response_model=SampleModel,
             )
 
 

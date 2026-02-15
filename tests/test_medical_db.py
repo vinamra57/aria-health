@@ -96,7 +96,7 @@ class TestFormatMedicalHistoryReport:
         assert "END OF REPORT" in report
 
     def test_empty_history(self):
-        history = PatientMedicalHistory(source="dummy://test")
+        history = PatientMedicalHistory(source="test://synthetic")
         report = format_medical_history_report(history, "Unknown", "0")
         assert "No conditions on record" in report
         assert "No known allergies on record" in report

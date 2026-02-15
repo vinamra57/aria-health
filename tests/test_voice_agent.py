@@ -1,38 +1,6 @@
 """Tests for voice agent service — ElevenLabs + Twilio outbound calls."""
 
-from app.services.voice_agent import _dummy_call, place_gp_call
-
-# --- Dummy Call Helper ---
-
-
-class TestDummyCall:
-    def test_returns_expected_keys(self):
-        result = _dummy_call("John Smith", "case-123")
-        assert "call_sid" in result
-        assert "conversation_id" in result
-        assert "status" in result
-        assert "transcript" in result
-
-    def test_status_is_dummy(self):
-        result = _dummy_call("Jane Doe", "case-456")
-        assert result["status"] == "dummy"
-
-    def test_transcript_contains_patient_name(self):
-        result = _dummy_call("Alice Johnson", "case-789")
-        assert "Alice Johnson" in result["transcript"]
-
-    def test_call_sid_contains_case_id(self):
-        result = _dummy_call("Test", "case-abc")
-        assert "case-abc" in result["call_sid"]
-
-    def test_conversation_id_contains_case_id(self):
-        result = _dummy_call("Test", "case-abc")
-        assert "case-abc" in result["conversation_id"]
-
-    def test_no_case_id(self):
-        result = _dummy_call("Test", None)
-        assert result["call_sid"] is not None
-        assert result["status"] == "dummy"
+from app.services.voice_agent import place_gp_call
 
 
 # --- Place GP Call (no ElevenLabs key in tests) ---
