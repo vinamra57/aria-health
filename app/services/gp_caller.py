@@ -9,7 +9,7 @@ Flow:
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.config import HOSPITAL_CALLBACK_NUMBER
 from app.database import get_db
@@ -121,7 +121,7 @@ async def call_gp(
                 (
                     outcome,
                     call_result.get("transcript", ""),
-                    datetime.now(timezone.utc).isoformat(),
+                    datetime.now(UTC).isoformat(),
                     case_id,
                 ),
             )
@@ -130,12 +130,7 @@ async def call_gp(
             logger.error("Failed to update case GP call status: %s", e)
 
     # 6. Build status string
-    if outcome == "dummy":
-        return (
-            f"[DUMMY] GP call placed to {phone_number} for {patient_name}. "
-            f"{call_result.get('transcript', '')}"
-        )
-    elif outcome == "initiated":
+    if outcome == "initiated":
         return (
             f"GP call initiated to {phone_number} for {patient_name}. "
             f"Call SID: {call_result.get('call_sid')}. "
@@ -169,7 +164,7 @@ async def _log_audit(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 case_id or "",
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 phone_number,
                 patient_name,
                 patient_dob,

@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -299,7 +299,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
                 logger.error("Final NEMSIS extraction error: %s", e)
         
         # Mark case as completed if it was active
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await db.execute(
             "UPDATE cases SET status = 'completed', updated_at = ?"
             " WHERE id = ? AND status = 'active'",
