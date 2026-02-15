@@ -75,5 +75,7 @@ async def init_db():
 async def close_db():
     global _db
     if _db is not None:
-        await _db.close()
+        conn = _db
         _db = None
+        await conn.close()
+        conn.join(timeout=5)

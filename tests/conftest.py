@@ -20,19 +20,13 @@ from app.main import app
 @pytest_asyncio.fixture
 async def db():
     """Provide a fresh in-memory database for each test."""
-    # Reset the global db connection
     import app.database as db_mod
 
-    db_mod._db = None
-    os.environ["DATABASE_PATH"] = ":memory:"
+    # Close any leftover connection from a previous test
+    await close_db()
 
-    # Re-import config to pick up the new path
-    import importlib
-
-    import app.config as config_mod
-
-    importlib.reload(config_mod)
-    importlib.reload(db_mod)
+    # Point at a fresh in-memory database
+    db_mod.DATABASE_PATH = ":memory:"
 
     await init_db()
     database = await get_db()
