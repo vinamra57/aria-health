@@ -1,4 +1,4 @@
-// Aria Health - Enhanced Paramedic UI with Multi-Source Patient History
+// Relay - Enhanced Paramedic UI with Multi-Source Patient History
 let currentCaseId = null;
 let ws = null;
 let mediaStream = null;

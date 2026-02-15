@@ -17,16 +17,16 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting Aria Health...")
+    logger.info("Starting Relay...")
     await init_db()
     logger.info("Database initialized")
     yield
     await close_db()
-    logger.info("Aria Health shut down")
+    logger.info("Relay shut down")
 
 
 app = FastAPI(
-    title="Aria Health",
+    title="Relay",
     description="AI Emergency Response System - Automated ePCR for Paramedics",
     version="0.1.0",
     lifespan=lifespan,

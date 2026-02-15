@@ -1,4 +1,4 @@
-// Aria Health - Paramedic UI
+// Relay - Paramedic UI
 let currentCaseId = null;
 let ws = null;
 let mediaStream = null;

@@ -965,7 +965,7 @@ function openEvidence(index) {
     drawer.setAttribute("aria-hidden", "false");
 }
 
-// --- Ask Aria ---
+// --- Ask Relay ---
 
 function setupAskPanel() {
     const panel = document.getElementById("askPanel");

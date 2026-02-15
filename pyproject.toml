@@ -1,5 +1,5 @@
 [project]
-name = "aria-health"
+name = "relay"
 version = "0.1.0"
 description = "AI Emergency Response System - Automated ePCR for Paramedics"
 requires-python = ">=3.11"

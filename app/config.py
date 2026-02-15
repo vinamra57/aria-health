@@ -20,7 +20,7 @@ DUMMY_MODE = os.getenv("DUMMY_MODE", "false").lower() in ("1", "true", "yes", "o
 VOICE_DUMMY = os.getenv("VOICE_DUMMY", "false").lower() in ("1", "true", "yes", "on")
 GP_CALLS_ENABLED = os.getenv("GP_CALLS_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 
-DATABASE_PATH = os.getenv("DATABASE_PATH", "aria_health.db")
+DATABASE_PATH = os.getenv("DATABASE_PATH", "relay.db")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 DATABASE_MAX_CONNECTIONS = int(os.getenv("DATABASE_MAX_CONNECTIONS", "5"))
@@ -42,9 +42,9 @@ ELEVENLABS_PHONE_NUMBER_ID = os.getenv("ELEVENLABS_PHONE_NUMBER_ID", "")
 HOSPITAL_CALLBACK_NUMBER = os.getenv("HOSPITAL_CALLBACK_NUMBER", "+1-555-0100")
 
 # Email address for GPs to send medical records to
-RECORDS_EMAIL = os.getenv("RECORDS_EMAIL", "records@ariahealth.com")
+RECORDS_EMAIL = os.getenv("RECORDS_EMAIL", "records@relay.health")
 
 # GCP (optional)
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
 GCP_PUBSUB_TOPIC = os.getenv("GCP_PUBSUB_TOPIC", "")
-GCP_PUBSUB_SUBSCRIPTION_PREFIX = os.getenv("GCP_PUBSUB_SUBSCRIPTION_PREFIX", "aria-health-events")
+GCP_PUBSUB_SUBSCRIPTION_PREFIX = os.getenv("GCP_PUBSUB_SUBSCRIPTION_PREFIX", "relay-events")
