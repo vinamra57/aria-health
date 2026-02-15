@@ -4,9 +4,16 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
-from app.config import GP_DOCUMENT_PATH
+from app.config import GP_DOCUMENT_PATH, GP_DOCUMENT_PATIENT_NAME
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_name(name: str) -> str:
+    """Normalize for comparison: lowercase, collapse spaces."""
+    if not name:
+        return ""
+    return " ".join(name.lower().split())
 
 
 def _clean_line(line: str) -> str:
@@ -96,7 +103,7 @@ def summarize_gp_document(raw_text: str) -> str:
 
 
 def load_gp_document_summary(path: str | None = None) -> tuple[str, str]:
-    """Load GP document text and produce a summary."""
+    """Load GP document text and produce a summary (no patient check)."""
     doc_path = Path(path or GP_DOCUMENT_PATH)
     if not doc_path.exists():
         logger.warning("GP document not found at %s", doc_path)
@@ -104,4 +111,22 @@ def load_gp_document_summary(path: str | None = None) -> tuple[str, str]:
 
     raw_text = extract_text_from_pdf(str(doc_path))
     summary = summarize_gp_document(raw_text)
+    return raw_text, summary
+
+
+def load_gp_document_for_patient(patient_name: str, path: str | None = None) -> tuple[str, str]:
+    """Load GP document only if patient_name matches GP_DOCUMENT_PATIENT_NAME.
+
+    Returns (full_text, summary) if match; else ("", "No data found from the GP.").
+    """
+    allowed = (GP_DOCUMENT_PATIENT_NAME or "").strip()
+    if not allowed:
+        logger.warning("GP_DOCUMENT_PATIENT_NAME not set; no document will be returned for any patient")
+        return "", "No data found from the GP."
+
+    if _normalize_name(patient_name) != _normalize_name(allowed):
+        logger.info("Patient '%s' does not match document patient '%s'; returning no data", patient_name, allowed)
+        return "", "No data found from the GP."
+
+    raw_text, summary = load_gp_document_summary(path)
     return raw_text, summary

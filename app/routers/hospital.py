@@ -190,14 +190,7 @@ async def hospital_voice_qa_ws(websocket: WebSocket, case_id: str):
         accumulated = f"{accumulated} {text}".strip() if accumulated else text
         await websocket.send_json({"type": "question_committed", "text": text})
 
-    stt = TranscriptionService(
-        on_partial=on_partial,
-        on_committed=on_committed,
-        dummy_segments=[
-            "What medications were given en route",
-            "Any known allergies or contraindications",
-        ],
-    )
+    stt = TranscriptionService(on_partial=on_partial, on_committed=on_committed)
     await stt.start()
 
     try:

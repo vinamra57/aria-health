@@ -454,9 +454,9 @@ async def query_fhir_servers(
         except Exception as e:
             logger.warning("FHIR query to %s failed: %s", base_url, e)
 
-    # Fallback to synthetic data when real servers are unavailable
-    logger.info("All FHIR servers unavailable; using synthetic data for %s", patient_name)
-    return _dummy_fhir_response(patient_name, patient_gender, patient_dob)
+    # No dummy fallback: return None so medical_db reports "No matching patient records found"
+    logger.info("All FHIR servers unavailable for %s; no synthetic data", patient_name)
+    return None
 
 
 def _get_patient_name(patient: dict) -> str:

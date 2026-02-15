@@ -29,25 +29,29 @@ def is_core_info_complete(record: NEMSISRecord) -> bool:
 
 
 def is_gp_contact_available(record: NEMSISRecord) -> bool:
-    """Check if GP name or confirmed GP phone is available.
-
-    If a phone number is being dictated (even partially), wait until it
-    has 10+ digits rather than triggering early on gp_name alone —
-    otherwise the lookup returns a wrong number and ignores the real one.
-    """
+    """Check if GP name or confirmed GP phone is available (for lookup)."""
     p = record.patient
     if p.gp_phone:
         digits = re.sub(r"[^\d]", "", p.gp_phone)
         if len(digits) >= MIN_PHONE_DIGITS:
             return True
-        # If it's a short/invalid number, but we do have a GP name, allow the call.
-        # This avoids blocking on mis-extracted digits (e.g., address numbers).
         if len(digits) < 7 and p.gp_name:
             return True
-        # Likely partial phone being dictated — wait.
         return False
-    # No phone mentioned — GP name alone is enough to trigger lookup
     return bool(p.gp_name)
+
+
+def is_gp_call_ready(record: NEMSISRecord) -> bool:
+    """GP call only when core info AND GP name AND valid GP phone (10+ digits) are filled."""
+    if not is_core_info_complete(record):
+        return False
+    p = record.patient
+    if not p.gp_name:
+        return False
+    if not p.gp_phone:
+        return False
+    digits = re.sub(r"[^\d]", "", p.gp_phone)
+    return len(digits) >= MIN_PHONE_DIGITS
 
 
 def get_full_name(record: NEMSISRecord) -> str:

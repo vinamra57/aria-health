@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from app.database import get_db
 from app.models.clinical import (
@@ -83,7 +83,7 @@ def _build_evidence_items(data: dict) -> list[EvidenceItem]:
         evidence.append(EvidenceItem(
             source_type="gp_call",
             source_label="GP transmission",
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             summary=data["gp_response"][:180],
         ))
 
@@ -91,7 +91,7 @@ def _build_evidence_items(data: dict) -> list[EvidenceItem]:
         evidence.append(EvidenceItem(
             source_type="medical_db",
             source_label="Medical records",
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             summary=data["medical_db_response"][:180],
         ))
 
@@ -164,49 +164,49 @@ def _dummy_insights(data: dict) -> ClinicalInsights:
                 file_type="PDF",
                 url="/static/assets/gp_lab_results.pdf",
                 source="GP transmission",
-                timestamp=datetime.now(UTC).isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
             ),
             Attachment(
                 name="Medication List",
                 file_type="PDF",
                 url="/static/assets/gp_medication_list.pdf",
                 source="GP transmission",
-                timestamp=datetime.now(UTC).isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
             ),
             Attachment(
                 name="Radiology Report",
                 file_type="PDF",
                 url="/static/assets/radiology_report.pdf",
                 source="GP transmission",
-                timestamp=datetime.now(UTC).isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
             ),
             Attachment(
                 name="Medication Reconciliation",
                 file_type="PDF",
                 url="/static/assets/medication_reconciliation.pdf",
                 source="GP transmission",
-                timestamp=datetime.now(UTC).isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
             ),
             Attachment(
                 name="Prior Discharge Summary",
                 file_type="PDF",
                 url="/static/assets/prior_discharge_summary.pdf",
                 source="GP transmission",
-                timestamp=datetime.now(UTC).isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
             ),
             Attachment(
                 name="12-Lead ECG",
                 file_type="Image",
                 url="/static/assets/ecg_trace.svg",
                 source="GP transmission",
-                timestamp=datetime.now(UTC).isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
             ),
             Attachment(
                 name="Scene Photo",
                 file_type="Image",
                 url="/static/assets/scene_photo.svg",
                 source="GP transmission",
-                timestamp=datetime.now(UTC).isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
             ),
         ]
 
@@ -219,7 +219,7 @@ def _dummy_insights(data: dict) -> ClinicalInsights:
         evidence=evidence,
         attachments=attachments,
         history_warnings=history_warnings,
-        updated_at=datetime.now(UTC).isoformat(),
+        updated_at=datetime.now(timezone.utc).isoformat(),
     )
 
 
@@ -291,7 +291,7 @@ async def build_clinical_insights(case_id: str) -> ClinicalInsights:
         if parsed is None:
             logger.error("LLM returned no parsed insights for case %s", case_id)
             return _dummy_insights(data)
-        parsed.updated_at = datetime.now(UTC).isoformat()
+        parsed.updated_at = datetime.now(timezone.utc).isoformat()
         parsed.history_warnings = await _build_history_warnings(data)
         if gp_available and not parsed.attachments:
             parsed.attachments = _dummy_insights(data).attachments
@@ -306,7 +306,7 @@ async def update_case_insights(case_id: str) -> ClinicalInsights:
     db = await get_db()
     await db.execute(
         "UPDATE cases SET clinical_insights = ?, updated_at = ? WHERE id = ?",
-        (json.dumps(insights.model_dump()), datetime.now(UTC).isoformat(), case_id),
+        (json.dumps(insights.model_dump()), datetime.now(timezone.utc).isoformat(), case_id),
     )
     await db.commit()
     return insights

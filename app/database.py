@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import aiosqlite
@@ -293,6 +293,7 @@ async def init_db() -> None:
 
     await db.commit()
 
+    # Uncomment to seed demo cases (pre-filled NEMSIS); disabled for minimal voice→text→NEMSIS flow
     if SEED_DEMO_CASES:
         await _seed_demo_cases(db)
 
@@ -306,7 +307,7 @@ async def close_db() -> None:
 
 async def _seed_demo_cases(db: DatabaseAdapter) -> None:
     """Seed demo cases for UI previews when running in dummy mode."""
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
 
     demo_cases = []
 

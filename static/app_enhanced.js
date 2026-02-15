@@ -268,6 +268,8 @@ function updateNEMSIS(nemsis) {
     setField("nAddress", p.patient_address);
     setField("nCity", p.patient_city);
     setField("nState", p.patient_state);
+    setField("nGpName", p.gp_name);
+    setField("nGpPhone", p.gp_phone);
 
     // Vitals with warning/critical highlighting
     if (v.systolic_bp || v.diastolic_bp) {
@@ -629,15 +631,21 @@ function showHospitalBanner() {
 }
 
 function handleMedicalDbComplete(reportText) {
-    setSourceStatus('FHIR', 'success');
-    updateSourceResult('FHIR', 'History loaded');
-    document.getElementById("sourcesStatus").textContent = "Medical history received";
+    const noRecords = !reportText || /no matching patient records found/i.test(reportText) || /not found.*connected health systems/i.test(reportText);
+    if (noRecords) {
+        setSourceStatus('FHIR', 'failed');
+        updateSourceResult('FHIR', '');
+    } else {
+        setSourceStatus('FHIR', 'success');
+        updateSourceResult('FHIR', 'History loaded');
+    }
+    document.getElementById("sourcesStatus").textContent = noRecords ? "No patient records found" : "Medical history received";
     document.getElementById("patientHistory").style.display = "block";
     const parsed = parseMedicalDbReport(reportText || "");
     fetchedMedicalHistory = parsed;
     showAggregatedHistory(parsed);
     showClinicalAlerts(parsed);
-    showHospitalBanner();
+    if (!noRecords) showHospitalBanner();
 }
 
 function handleGpTriggered(message) {

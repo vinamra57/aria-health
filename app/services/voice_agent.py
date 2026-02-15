@@ -16,7 +16,7 @@ from app.config import (
     GP_CALLS_ENABLED,
     HOSPITAL_CALLBACK_NUMBER,
     RECORDS_EMAIL,
-    VOICE_DUMMY,
+    RELAY_CALLBACK_NUMBER,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,13 +51,9 @@ async def place_gp_call(
             "transcript": "GP calls disabled by configuration.",
         }
 
-    if VOICE_DUMMY:
-        logger.info("VOICE_DUMMY=true, returning dummy GP call")
-        return _dummy_call(patient_name, case_id)
-
     if not ELEVENLABS_API_KEY:
-        logger.info("ELEVENLABS_API_KEY not set; using dummy GP call")
-        return _dummy_call(patient_name, case_id)
+        logger.info("ELEVENLABS_API_KEY not set; skipping real GP call")
+        return {"call_sid": None, "conversation_id": None, "status": "skipped", "transcript": "GP call skipped: API not configured."}
 
     if not ELEVENLABS_AGENT_ID:
         logger.error("ELEVENLABS_AGENT_ID not set, cannot place GP call")
@@ -72,10 +68,15 @@ async def place_gp_call(
     callback = hospital_callback or HOSPITAL_CALLBACK_NUMBER
     situation = chief_complaint or "a medical emergency"
     email = records_email or RECORDS_EMAIL
+    relay_callback = RELAY_CALLBACK_NUMBER
 
-    # Dynamic variables fill {{placeholders}} in the ElevenLabs dashboard prompt.
-    # The dashboard prompt/first_message are managed via the ElevenLabs API
-    # (see agent_id in config). No need to duplicate the prompt here.
+    # Reason for call: patient en route to hospital + chief complaint / expected problem
+    reason_for_call = (
+        f"The patient is on the way to the hospital. Reason for transport: {situation}."
+    )
+
+    # Dynamic variables fill {{placeholders}} in the ElevenLabs agent prompt.
+    # See docs/GP_CALL_AGENT_PROMPT.md for the script to paste into your ElevenLabs agent.
     payload = {
         "agent_id": ELEVENLABS_AGENT_ID,
         "agent_phone_number_id": ELEVENLABS_PHONE_NUMBER_ID,
@@ -88,8 +89,10 @@ async def place_gp_call(
                 "patient_address": patient_address or "unknown",
                 "patient_dob": patient_dob or "unknown",
                 "chief_complaint": situation,
+                "reason_for_call": reason_for_call,
                 "hospital_callback": callback,
                 "records_email": email,
+                "relay_callback_number": relay_callback,
                 "case_id": case_id or "unknown",
             },
         },
@@ -132,15 +135,3 @@ async def place_gp_call(
                 "error": str(e)}
 
 
-def _dummy_call(patient_name: str, case_id: str | None) -> dict:
-    """Return synthetic call result for dummy mode."""
-    return {
-        "call_sid": f"dummy-sid-{case_id or 'none'}",
-        "conversation_id": f"dummy-conv-{case_id or 'none'}",
-        "status": "dummy",
-        "transcript": (
-            f"[DUMMY] GP practice answered. Confirmed patient {patient_name} is on file. "
-            f"Allergies: Penicillin. Current medications: Metformin 500mg, Lisinopril 10mg. "
-            f"Recent history: Type 2 diabetes, hypertension. Last visit: 3 weeks ago."
-        ),
-    }

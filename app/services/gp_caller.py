@@ -10,7 +10,7 @@ Flow:
 
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from app.config import HOSPITAL_CALLBACK_NUMBER
 from app.database import get_db
@@ -48,20 +48,32 @@ async def call_gp(
     Returns:
         Status string describing the call outcome.
     """
-    # 1. Check preconditions
-    if not gp_name and not gp_phone:
-        logger.info("No GP contact available for %s — skipping GP call", patient_name)
-        return "No GP contact available — GP call not triggered."
+    # 1. Preconditions: we require gp_name + valid gp_phone (caller should use is_gp_call_ready)
+    digits = re.sub(r"[^\d]", "", gp_phone or "")
+    if len(digits) >= 10:
+        phone_number = gp_phone.strip()
+        logger.info("Using GP phone from NEMSIS: %s", phone_number)
+    else:
+        # Fallback: resolve via Perplexity if we have GP name but no number
+        if not gp_name:
+            logger.info("No GP contact for %s — skipping GP call", patient_name)
+            return "No GP contact available — GP call not triggered."
+        lookup_result = await lookup_gp_phone(
+            gp_name=gp_name,
+            location=patient_address or "unknown",
+            practice_name=gp_practice_name,
+        )
+        if lookup_result and lookup_result.get("phone"):
+            phone_number = lookup_result["phone"]
+            logger.info("Resolved GP phone via lookup: %s", phone_number)
+        else:
+            logger.info("No GP phone number found for %s", gp_name)
+            return "No GP phone number available — call not placed."
 
     logger.info(
-        "GP call triggered for %s (gp_name=%s, gp_phone=%s, practice=%s)",
-        patient_name, gp_name, gp_phone, gp_practice_name,
+        "GP call triggered for %s (gp_name=%s, to=%s)",
+        patient_name, gp_name, phone_number,
     )
-
-    # 2. Resolve phone number
-    phone_number = "9294005156"
-    lookup_result = None
-    logger.info("Using hardcoded GP phone: %s", phone_number)
 
     # 3. Place call
     call_result = await place_gp_call(
@@ -99,7 +111,7 @@ async def call_gp(
                 (
                     outcome,
                     call_result.get("transcript", ""),
-                    datetime.now(UTC).isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     case_id,
                 ),
             )
@@ -108,12 +120,7 @@ async def call_gp(
             logger.error("Failed to update case GP call status: %s", e)
 
     # 6. Build status string
-    if outcome == "dummy":
-        return (
-            f"[DUMMY] GP call placed to {phone_number} for {patient_name}. "
-            f"{call_result.get('transcript', '')}"
-        )
-    elif outcome == "skipped":
+    if outcome == "skipped":
         return "GP call skipped (disabled by configuration)."
     elif outcome == "initiated":
         return (
@@ -149,7 +156,7 @@ async def _log_audit(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 case_id or "",
-                datetime.now(UTC).isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 phone_number,
                 patient_name,
                 patient_dob,

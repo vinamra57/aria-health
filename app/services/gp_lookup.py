@@ -58,8 +58,8 @@ async def lookup_gp_phone(
         Dict with keys: phone, practice_name, address, source — or None if not found.
     """
     if not PERPLEXITY_API_KEY:
-        logger.info("PERPLEXITY_API_KEY not set; using dummy GP lookup")
-        return _dummy_lookup(gp_name, practice_name)
+        logger.info("PERPLEXITY_API_KEY not set; cannot resolve GP phone")
+        return None
 
     # Build the search query
     parts = [gp_name]

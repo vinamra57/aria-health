@@ -18,6 +18,9 @@ LLM_MODEL_HIGH = os.getenv("LLM_MODEL_HIGH", "")
 
 # Demo/Debug mode (explicit)
 DUMMY_MODE = os.getenv("DUMMY_MODE", "false").lower() in ("1", "true", "yes", "on")
+
+# Minimal flow: only voice → transcript and transcript → NEMSIS → DB. No Synthea, GP call, hospital summary, or dummy vitals.
+SIMPLE_STREAM = os.getenv("SIMPLE_STREAM", "true").lower() in ("1", "true", "yes", "on")
 VOICE_DUMMY = os.getenv("VOICE_DUMMY", "false").lower() in ("1", "true", "yes", "on")
 GP_CALLS_ENABLED = os.getenv("GP_CALLS_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 
@@ -25,24 +28,24 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "relay.db")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 DATABASE_MAX_CONNECTIONS = int(os.getenv("DATABASE_MAX_CONNECTIONS", "5"))
-SEED_DEMO_CASES = os.getenv("SEED_DEMO_CASES", "true").lower() == "true"
+# Set true to seed demo-stemi, demo-stroke, demo-trauma (pre-filled NEMSIS). False = only real voice→NEMSIS.
+SEED_DEMO_CASES = os.getenv("SEED_DEMO_CASES", "false").lower() == "true"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 GP_DOCUMENT_PATH = os.getenv(
     "GP_DOCUMENT_PATH",
     str(BASE_DIR / "data" / "doc" / "Medical Record.pdf"),
 )
+# Patient name this document is for (case-insensitive). Other patients get "No data found from the GP."
+GP_DOCUMENT_PATIENT_NAME = (os.getenv("GP_DOCUMENT_PATIENT_NAME", "").strip() or None)
 GP_DOCUMENT_DELAY_SECONDS = int(os.getenv("GP_DOCUMENT_DELAY_SECONDS", "60"))
 GP_CALL_PENDING_SECONDS = int(os.getenv("GP_CALL_PENDING_SECONDS", "8"))
 
 # Perplexity Sonar API (GP contact resolution)
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "")
 
-# Demo override for medical history lookup
-FHIR_DEMO_PATIENT_URL = os.getenv(
-    "FHIR_DEMO_PATIENT_URL",
-    "https://hapi.fhir.org/baseR4/Patient/131273059/$everything",
-)
+# Optional: fixed patient URL for testing. If unset, we do real name-based lookup on FHIR/Synthea.
+FHIR_DEMO_PATIENT_URL = os.getenv("FHIR_DEMO_PATIENT_URL", "").strip() or None
 
 # Twilio (outbound voice calls)
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
@@ -56,8 +59,11 @@ ELEVENLABS_PHONE_NUMBER_ID = os.getenv("ELEVENLABS_PHONE_NUMBER_ID", "")
 # Hospital callback number for GP voicemail
 HOSPITAL_CALLBACK_NUMBER = os.getenv("HOSPITAL_CALLBACK_NUMBER", "+1-555-0100")
 
-# Email address for GPs to send medical records to
-RECORDS_EMAIL = os.getenv("RECORDS_EMAIL", "records@relay.health")
+# Email for GPs to send medical records to
+RECORDS_EMAIL = os.getenv("RECORDS_EMAIL", "records_relay@treehacks.com")
+
+# Number for GP to call back if they need to reach Relay ("if you want to get back, call this number")
+RELAY_CALLBACK_NUMBER = os.getenv("RELAY_CALLBACK_NUMBER", "123450")
 
 # GCP (optional)
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")

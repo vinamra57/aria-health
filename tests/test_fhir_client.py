@@ -444,10 +444,10 @@ def test_dummy_fhir_response_structure():
     assert set(result.keys()) == expected_keys
 
 
-async def test_query_fhir_servers_returns_result():
-    """query_fhir_servers always returns a result (real or dummy fallback)."""
+async def test_query_fhir_servers_returns_result_or_none():
+    """query_fhir_servers returns a result when a patient is found, or None (no dummy fallback)."""
     result = await query_fhir_servers("Test Patient", "female")
-    assert result is not None
-    assert "conditions" in result
-    assert "allergies" in result
-    assert "medications" in result
+    if result is not None:
+        assert "conditions" in result
+        assert "allergies" in result
+        assert "medications" in result
