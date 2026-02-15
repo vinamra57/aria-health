@@ -58,7 +58,7 @@ def serve():
         "--served-model-name",
         SERVED_MODEL_NAME,
         "--host",
-        "0.0.0.0",
+        "0.0.0.0",  # noqa: S104 — must bind all interfaces inside Modal container
         "--port",
         str(VLLM_PORT),
         "--tensor-parallel-size",
@@ -68,4 +68,4 @@ def serve():
         "--enforce-eager",  # faster cold starts
         "--uvicorn-log-level=info",
     ]
-    subprocess.Popen(" ".join(cmd), shell=True)
+    subprocess.Popen(cmd)  # noqa: S603

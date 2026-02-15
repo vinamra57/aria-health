@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -53,7 +53,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
         """Handle committed transcript from ElevenLabs."""
         nonlocal accumulated_transcript
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         # Save raw segment to database
         await db.execute(
@@ -95,7 +95,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
                 )
 
                 nemsis_json = current_nemsis.model_dump_json()
-                now = datetime.now(timezone.utc).isoformat()
+                now = datetime.now(UTC).isoformat()
 
                 patient = current_nemsis.patient
                 patient_name = (
@@ -169,7 +169,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
     finally:
         await stt.stop()
         # Mark case as completed if it was active
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await db.execute(
             "UPDATE cases SET status = 'completed', updated_at = ?"
             " WHERE id = ? AND status = 'active'",
