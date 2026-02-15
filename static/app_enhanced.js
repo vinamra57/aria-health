@@ -304,6 +304,12 @@ function updateNEMSIS(nemsis) {
 
     // Update core info dots
     updateCoreDots(p);
+
+    // If GP info is detected in NEMSIS, mark GP call as in progress
+    if ((p.gp_name || p.gp_phone || p.gp_practice_name) && dataSources.GP?.status === 'waiting') {
+        setSourceStatus('GP', 'querying');
+        updateSourceResult('GP', 'GP contact detected');
+    }
 }
 
 function setField(id, value) {

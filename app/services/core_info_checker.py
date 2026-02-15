@@ -37,8 +37,15 @@ def is_gp_contact_available(record: NEMSISRecord) -> bool:
     """
     p = record.patient
     if p.gp_phone:
-        # Phone was mentioned — wait until fully extracted (10+ digits)
-        return _has_valid_phone(p.gp_phone)
+        digits = re.sub(r"[^\d]", "", p.gp_phone)
+        if len(digits) >= MIN_PHONE_DIGITS:
+            return True
+        # If it's a short/invalid number, but we do have a GP name, allow the call.
+        # This avoids blocking on mis-extracted digits (e.g., address numbers).
+        if len(digits) < 7 and p.gp_name:
+            return True
+        # Likely partial phone being dictated — wait.
+        return False
     # No phone mentioned — GP name alone is enough to trigger lookup
     return bool(p.gp_name)
 
@@ -97,5 +104,4 @@ async def trigger_gp_call(record: NEMSISRecord, case_id: str) -> str:
         case_id=case_id,
         chief_complaint=chief_complaint,
     )
-
 
