@@ -365,7 +365,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Dummy vitals update failed: %s", exc)
 
-            await asyncio.sleep(0.45)
+            await asyncio.sleep(0.5)
 
     # Load existing case data
     existing = await db.fetch_one(
