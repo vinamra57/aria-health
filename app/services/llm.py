@@ -22,9 +22,9 @@ T = TypeVar("T", bound=BaseModel)
 
 
 _ANTHROPIC_DEFAULTS = {
-    "fast": "claude-3-haiku-20240307",
-    "standard": "claude-3-5-sonnet-20240620",
-    "high": "claude-3-5-sonnet-20240620",
+    "fast": "claude-sonnet-4-5-20250929",
+    "standard": "claude-sonnet-4-5-20250929",
+    "high": "claude-sonnet-4-5-20250929",
 }
 
 _OPENAI_DEFAULTS = {
