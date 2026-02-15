@@ -14,7 +14,7 @@ def _clean_line(line: str) -> str:
     return cleaned
 
 
-def extract_text_from_pdf(path: str) -> str:
+def _extract_pdf_text(path: str) -> str:
     """Extract raw text from a PDF using pypdf."""
     try:
         reader = PdfReader(path)
@@ -26,6 +26,38 @@ def extract_text_from_pdf(path: str) -> str:
     except Exception as exc:  # pragma: no cover - best effort extraction
         logger.warning("Failed to read GP document %s: %s", path, exc)
         return ""
+
+
+def _extract_pdf_ocr(path: str) -> str:
+    """Fallback OCR extraction using pdf2image + pytesseract if available."""
+    try:
+        from pdf2image import convert_from_path  # type: ignore
+        import pytesseract  # type: ignore
+    except Exception:
+        logger.info("OCR dependencies not available; skipping OCR")
+        return ""
+
+    try:
+        images = convert_from_path(path, dpi=200)
+    except Exception as exc:
+        logger.warning("Failed to render PDF for OCR: %s", exc)
+        return ""
+
+    text_chunks = []
+    for image in images:
+        try:
+            text_chunks.append(pytesseract.image_to_string(image))
+        except Exception as exc:
+            logger.warning("OCR failed on a page: %s", exc)
+    return "\n".join(text_chunks).strip()
+
+
+def extract_text_from_pdf(path: str) -> str:
+    """Extract raw text from a PDF; fallback to OCR if needed."""
+    text = _extract_pdf_text(path)
+    if text:
+        return text
+    return _extract_pdf_ocr(path)
 
 
 def summarize_gp_document(raw_text: str) -> str:

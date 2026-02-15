@@ -1,10 +1,12 @@
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.config import GP_DOCUMENT_PATH
 from app.database import close_db, init_db
 from app.routers import cases, gp_call, hospital, stream
 
@@ -50,3 +52,11 @@ async def serve_paramedic_ui():
 @app.get("/hospital")
 async def serve_hospital_ui():
     return FileResponse("static/hospital.html")
+
+
+@app.get("/api/documents/gp-record")
+async def get_gp_record():
+    path = Path(GP_DOCUMENT_PATH)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="GP document not found")
+    return FileResponse(path, media_type="application/pdf", filename=path.name)

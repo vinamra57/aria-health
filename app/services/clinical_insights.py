@@ -160,6 +160,13 @@ def _dummy_insights(data: dict) -> ClinicalInsights:
     if data.get("gp_response"):
         attachments = [
             Attachment(
+                name="GP Medical Record",
+                file_type="PDF",
+                url="/api/documents/gp-record",
+                source="GP transmission",
+                timestamp=datetime.now(UTC).isoformat(),
+            ),
+            Attachment(
                 name="GP Lab Results",
                 file_type="PDF",
                 url="/static/assets/gp_lab_results.pdf",
@@ -293,8 +300,18 @@ async def build_clinical_insights(case_id: str) -> ClinicalInsights:
             return _dummy_insights(data)
         parsed.updated_at = datetime.now(UTC).isoformat()
         parsed.history_warnings = await _build_history_warnings(data)
-        if gp_available and not parsed.attachments:
-            parsed.attachments = _dummy_insights(data).attachments
+        if gp_available:
+            if not parsed.attachments:
+                parsed.attachments = _dummy_insights(data).attachments
+            else:
+                if not any(att.url == "/api/documents/gp-record" for att in parsed.attachments):
+                    parsed.attachments.append(Attachment(
+                        name="GP Medical Record",
+                        file_type="PDF",
+                        url="/api/documents/gp-record",
+                        source="GP transmission",
+                        timestamp=datetime.now(UTC).isoformat(),
+                    ))
         return parsed
     except Exception as e:
         logger.error("Clinical insights generation failed for %s: %s", case_id, e)
