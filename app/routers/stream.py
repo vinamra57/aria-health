@@ -72,7 +72,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
         """Handle committed transcript from ElevenLabs."""
         nonlocal accumulated_transcript, current_partial
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         current_partial = ""  # Reset partial since it's now committed
 
         # Save raw segment to database
@@ -158,7 +158,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
                     last_extracted_word_count = current_word_count
 
                     nemsis_json = current_nemsis.model_dump_json()
-                    now = datetime.now(timezone.utc).isoformat()
+                    now = datetime.now(UTC).isoformat()
 
                     patient = current_nemsis.patient
                     patient_name = (
@@ -257,7 +257,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
         await stt.stop()
         
         # Run one final extraction to capture any remaining text
-        if ANTHROPIC_API_KEY and len(accumulated_transcript) > last_extracted_length:
+        if ANTHROPIC_API_KEY and len(accumulated_transcript.split()) > last_extracted_word_count:
             logger.info("Running final NEMSIS extraction before closing")
             try:
                 async with extraction_lock:
@@ -265,7 +265,7 @@ async def stream_endpoint(websocket: WebSocket, case_id: str):
                         accumulated_transcript, current_nemsis
                     )
                     nemsis_json = current_nemsis.model_dump_json()
-                    now = datetime.now(timezone.utc).isoformat()
+                    now = datetime.now(UTC).isoformat()
                     
                     patient = current_nemsis.patient
                     patient_name = (
